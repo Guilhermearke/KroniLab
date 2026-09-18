@@ -67,7 +67,11 @@ async function migrate(conn: SQLite.SQLiteDatabase): Promise<void> {
     create table if not exists event_song_settings (
       event_id text not null, song_id text not null, arrangement_id text,
       selected_key text, selected_tempo real, position integer not null default 0,
-      notes text, updated_at text, primary key (event_id, song_id)
+      notes text,
+      -- O que acontece quando a musica acaba, e se o pad segura o tom.
+      transition text not null default 'stop',
+      pad_enabled integer not null default 0,
+      updated_at text, primary key (event_id, song_id)
     );
 
     create table if not exists offline_manifests (

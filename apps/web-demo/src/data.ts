@@ -6,7 +6,7 @@
  * que toca — e o mesmo dado, entao a tela nunca mente sobre o audio.
  */
 import { buildBeatGrid } from '@kronilab/core';
-import type { BeatGrid, Section, SectionType } from '@kronilab/core';
+import type { BeatGrid, Section, SectionType, TransitionMode } from '@kronilab/core';
 
 export type StemKey = 'click' | 'guide' | 'vocals' | 'drums' | 'bass' | 'guitar' | 'keys' | 'other';
 
@@ -54,6 +54,9 @@ export interface DemoSong {
   grid: BeatGrid;
   sections: DemoSection[];
   durationSec: number;
+  /** O que acontece quando esta musica acaba (configuracao do culto). */
+  transition: TransitionMode;
+  padEnabled: boolean;
 }
 
 const C = (degree: number, quality: Chord['quality'] = 'maj'): Chord => ({ degree, quality });
@@ -69,6 +72,7 @@ interface SectionPlan {
 function make(
   id: string, title: string, artist: string, key: string, selectedKey: string | null,
   bpm: number, plan: SectionPlan[],
+  transition: TransitionMode = 'stop', padEnabled = true,
 ): DemoSong {
   let bar = 1;
   const sections: DemoSection[] = plan.map((p, i) => {
@@ -89,7 +93,7 @@ function make(
       tempoMap: { segments: [{ startTime: 0, bpm }] },
       duration: durationSec + 2,
     }),
-    sections, durationSec,
+    sections, durationSec, transition, padEnabled,
   };
 }
 
@@ -106,7 +110,7 @@ export const SETLIST: DemoSong[] = [
     { type: 'Bridge', label: 'Ponte', bars: 8, chords: [C(5, 'sus2'), C(9, 'min'), C(7), C(0)], layers: ['keys', 'bass', 'other', 'vocals'] },
     { type: 'Chorus', label: 'Refrao 3', bars: 8, chords: [C(0), C(7), C(9, 'min'), C(5)], layers: FULL },
     { type: 'Outro', label: 'Final', bars: 4, chords: [C(5), C(0)], layers: ['keys', 'other'] },
-  ]),
+  ], 'crossfade'),
   make('s2', 'Gratidao', 'Demo KroniLab', 'D', 'D', 132, [
     { type: 'Intro', label: 'Intro', bars: 4, chords: [C(0), C(7)], layers: ['guitar', 'keys'] },
     { type: 'Verse', label: 'Verso', bars: 8, chords: [C(0), C(5), C(7), C(9, 'min')], layers: ['guitar', 'bass', 'drums', 'vocals'] },
@@ -114,7 +118,7 @@ export const SETLIST: DemoSong[] = [
     { type: 'Instrumental', label: 'Instrumental', bars: 4, chords: [C(9, 'min'), C(5)], layers: ['guitar', 'drums', 'bass', 'keys'] },
     { type: 'Chorus', label: 'Refrao 2', bars: 8, chords: [C(5), C(0), C(7), C(7)], layers: FULL },
     { type: 'Outro', label: 'Final', bars: 4, chords: [C(0)], layers: ['keys'] },
-  ]),
+  ], 'pad'),
   make('s3', 'Yeshua', 'Demo KroniLab', 'E', null, 88, [
     { type: 'Intro', label: 'Intro', bars: 4, chords: [C(0, 'sus2'), C(0)], layers: ['keys'] },
     { type: 'Verse', label: 'Verso', bars: 8, chords: [C(0), C(9, 'min'), C(5), C(7)], layers: ['keys', 'bass', 'vocals'] },

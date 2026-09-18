@@ -3,7 +3,7 @@
  * por isso funciona identico com ou sem rede.
  */
 import type {
-  Beat, BeatGrid, ChurchEvent, EventSongSettings, Section, Song, StemId,
+  Beat, BeatGrid, ChurchEvent, EventSongSettings, Instrument, Section, Song, StemId,
 } from '@kronilab/core';
 import { getDb } from './db.ts';
 
@@ -32,6 +32,7 @@ export async function getEventSettings(eventId: string): Promise<EventSongSettin
     id: `${r.event_id}:${r.song_id}`, eventId: r.event_id, songId: r.song_id,
     arrangementId: r.arrangement_id, selectedKey: r.selected_key,
     selectedTempo: r.selected_tempo, position: r.position, notes: r.notes,
+    transition: r.transition ?? 'stop', padEnabled: !!r.pad_enabled,
     updatedAt: r.updated_at,
   }));
 }
@@ -111,4 +112,89 @@ function toEvent(row: any): ChurchEvent {
     id: row.id, churchId: row.church_id, ministryId: row.ministry_id, name: row.name,
     startsAt: row.starts_at, location: row.location, status: row.status, notes: row.notes,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Escrita: criar culto, montar escala, editar repertorio
+// ---------------------------------------------------------------------------
+
+export async function createEvent(input: {
+  churchId: string;
+  ministryId: string;
+  name: string;
+  startsAt: string;
+  location: string | null;
+  notes: string | null;
+  roles: { instrument: Instrument; slots: number }[];
+}): Promise<string> {
+  const conn = await getDb();
+  const id = `ev-${Date.now()}`;
+  await conn.runAsync(
+    `insert into events (id, church_id, ministry_id, name, starts_at, location, status, notes)
+     values (?, ?, ?, ?, ?, ?, 'draft', ?)`,
+    [id, input.churchId, input.ministryId, input.name, input.startsAt, input.location, input.notes],
+  );
+  // As funcoes do culto nascem junto: uma escala sem funcoes nao e escala.
+  for (const role of input.roles) {
+    await conn.runAsync(
+      `insert into event_members (id, event_id, event_role_id, instrument, member_id, member_name, status)
+       values (?, ?, ?, ?, '', '', 'pending')`,
+      [`${id}-${role.instrument}`, id, `${id}-role-${role.instrument}`, role.instrument],
+    );
+  }
+  return id;
+}
+
+export async function assignMember(input: {
+  eventId: string;
+  instrument: Instrument;
+  memberId: string;
+  memberName: string;
+}): Promise<void> {
+  const conn = await getDb();
+  await conn.runAsync(
+    `insert into event_members (id, event_id, event_role_id, instrument, member_id, member_name, status)
+     values (?, ?, ?, ?, ?, ?, 'pending')
+     on conflict(id) do update set member_id = excluded.member_id,
+       member_name = excluded.member_name, status = 'pending', responded_at = null`,
+    [`${input.eventId}-${input.instrument}`, input.eventId,
+     `${input.eventId}-role-${input.instrument}`, input.instrument,
+     input.memberId, input.memberName],
+  );
+}
+
+export async function clearAssignment(eventId: string, instrument: Instrument): Promise<void> {
+  const conn = await getDb();
+  await conn.runAsync(
+    `update event_members set member_id = '', member_name = '', status = 'pending'
+      where event_id = ? and instrument = ?`,
+    [eventId, instrument],
+  );
+}
+
+/** Grava a ordem inteira de uma vez: meia ordem salva e ordem divergente. */
+export async function saveSetlist(eventId: string, settings: EventSongSettings[]): Promise<void> {
+  const conn = await getDb();
+  await conn.withTransactionAsync(async () => {
+    await conn.runAsync('delete from event_song_settings where event_id = ?', [eventId]);
+    for (const s of settings) {
+      await conn.runAsync(
+        `insert into event_song_settings
+           (event_id, song_id, arrangement_id, selected_key, selected_tempo, position, notes, transition, pad_enabled, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [eventId, s.songId, s.arrangementId, s.selectedKey, s.selectedTempo,
+         s.position, s.notes, s.transition ?? 'stop', s.padEnabled ? 1 : 0,
+         new Date().toISOString()],
+      );
+    }
+  });
+}
+
+export async function listSongs(churchId: string): Promise<Song[]> {
+  const conn = await getDb();
+  const rows = await conn.getAllAsync<{ id: string }>(
+    'select id from songs where church_id = ? order by title', [churchId],
+  );
+  const songs = await Promise.all(rows.map((r) => getSong(r.id)));
+  return songs.filter((s): s is Song => s !== null);
 }

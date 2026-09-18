@@ -84,12 +84,46 @@ await page.click('#lv-nudge-up');
 await page.waitForTimeout(150);
 console.log(`8. Nudge: "${await page.textContent('#live-rate')}"`);
 await page.screenshot({ path: '/tmp/phone-live.png' });
+await page.click('#lv-exit');
+await page.waitForTimeout(200);
+
+// --- pad: liga no tom da musica, com fade ---------------------------------
+await page.click('#pad-btn');
+await page.waitForTimeout(300);
+const padOn = await page.evaluate(() => document.querySelector('#pad-btn').classList.contains('on'));
+const padLog = await page.textContent('.log-line');
+console.log(`10. Pad: ligado=${padOn} | ${padLog.replace(/\s+/g, ' ').trim().slice(11, 60)}`);
+
+// --- transicao automatica: pula para o fim e ve se emenda sozinho ---------
+const before = await page.textContent('#song-title');
+await page.evaluate(() => {
+  const song = 125; // Santo Pra Sempre dura ~2:05
+  const slider = document.querySelector('#tr-slider');
+  slider.value = String(Math.round(((song - 3.5) / song) * 1000));
+  slider.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.waitForTimeout(200);
+if (!(await page.evaluate(() => document.querySelector('#tr-play').textContent.includes('❚')))) {
+  await page.click('#tr-play');
+}
+await page.waitForFunction((t) => document.querySelector('#song-title').textContent !== t, before, { timeout: 15000 })
+  .then(async () => {
+    const after = await page.textContent('#song-title');
+    const tlog = await page.textContent('.log-done');
+    console.log(`11. Transicao automatica: "${before}" -> "${after}" | ${tlog.replace(/\s+/g, ' ').trim().slice(11, 62)}`);
+  })
+  .catch(() => console.log('11. Transicao automatica: FALHOU (nao emendou sozinho)'));
+
 console.log(`erros (celular): ${errors.length ? errors.join(' | ') : 'nenhum'}`);
 
 // ------------------------------------------------------------------- tablet
 const tablet = await open(1194, 834);
 await tablet.page.click('#view-toggle');
 await tablet.page.waitForTimeout(350);
+// O modo da mesa e escolha do operador, nao consequencia do tamanho da tela:
+// o teste precisa escolher Faders antes de medir a geometria.
+await tablet.page.click('#mode-faders');
+await tablet.page.waitForTimeout(250);
 // Geometria, nao implementacao: o fader precisa ser mais alto que largo E
 // caber dentro da coluna do canal — foi exatamente isso que a rotacao quebrou.
 const layout = await tablet.page.evaluate(() => {

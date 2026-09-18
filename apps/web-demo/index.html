@@ -24,7 +24,7 @@
       <span class="meta-item"><i>◷</i><b id="meta-dur">0:00</b></span>
     </div>
   </div>
-  <button class="icon-btn save" title="Salvar">▤</button>
+  <button class="icon-btn" id="pad-btn" title="Pad no tom">PAD</button>
   <button class="live-btn" id="live-btn"><span class="dot"></span> Ao Vivo</button>
   <button class="icon-btn" id="next-song" title="Proxima musica">⋮</button>
 </header>
@@ -58,6 +58,11 @@
     <span class="mx-select"><i>♪</i> <b id="sel-key">C</b> <span class="chev">⌄</span></span>
     <span class="mx-select"><i>𝄞</i> <b id="sel-bpm">115</b> BPM <span class="chev">⌄</span></span>
     <span class="mx-select on"><i>123</i> <b id="sel-countin">2 comp.</b> <span class="chev">⌄</span></span>
+    <!-- Modo de visualizacao da mesa: escolha do operador, em qualquer tela -->
+    <span class="view-modes">
+      <button id="mode-rows">Canais</button>
+      <button id="mode-faders">Faders</button>
+    </span>
   </div>
   <div id="mixer"></div>
 </main>

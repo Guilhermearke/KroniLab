@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { ChurchEvent } from '@kronilab/core';
-import { Card, Muted, Pill, Row, Screen, Title } from '../../src/ui/kit.tsx';
+import { Button, Card, Muted, Pill, Row, Screen, Title } from '../../src/ui/kit.tsx';
 import { listUpcomingEvents } from '../../src/data/repositories.ts';
 import { useSession } from '../../src/domains/auth/useSession.ts';
 import { colors, type } from '../../src/theme.ts';
@@ -13,7 +13,7 @@ const STATUS_LABEL = { draft: 'Rascunho', published: 'Publicado', completed: 'Co
 
 export default function Cultos() {
   const router = useRouter();
-  const { churchId } = useSession();
+  const { churchId, allows } = useSession();
   const [events, setEvents] = useState<ChurchEvent[]>([]);
 
   useEffect(() => { void listUpcomingEvents(churchId).then(setEvents); }, [churchId]);
@@ -21,6 +21,9 @@ export default function Cultos() {
   return (
     <Screen>
       <Title>Cultos</Title>
+      {allows('event:create') && (
+        <Button title="+ Novo culto" onPress={() => router.push('/evento/novo')} />
+      )}
       {events.length === 0 && <Muted>Nenhum culto agendado.</Muted>}
       {events.map((event) => (
         <Card key={event.id} onPress={() => router.push(`/evento/${event.id}`)}>

@@ -6,6 +6,8 @@ export * from './transition.ts';
 export * from './nudge.ts';
 export * from './taptempo.ts';
 export * from './mixer.ts';
+export * from './setlist.ts';
+export * from './transitions.ts';
 export * from './offline.ts';
 export * from './livecheck.ts';
 export * from './processing.ts';

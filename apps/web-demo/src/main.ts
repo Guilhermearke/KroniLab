@@ -6,8 +6,8 @@
  */
 import {
   TapTempo, bpmAtTime, dueAction, nextSection, planLoopWrap, planNudge,
-  planSectionJump, planTempoReconcile, positionAt, sectionAtTime, timeOfBar,
-  NUDGE_STEP_MS,
+  planSectionJump, planTempoReconcile, planTransition, positionAt, sectionAtTime,
+  timeOfBar, NUDGE_STEP_MS, TRANSITION_LABEL,
 } from '@kronilab/core';
 import type { QuantizeMode } from '@kronilab/core';
 import { buildArrangement, computePeaks, type Arrangement } from './arrangement.ts';
@@ -29,6 +29,8 @@ let loopPlan: ReturnType<typeof planLoopWrap> = null;
 let loopSectionId: string | null = null;
 let lastAnnounced: string | null = null;
 let follow = true;
+let transitionPlan: ReturnType<typeof planTransition> | null = null;
+let advancing = false;
 
 // ---------------------------------------------------------------------------
 // Log — mostra a decisao do core ANTES do efeito. E o ponto da demo: da para
@@ -63,6 +65,22 @@ function loadSong(index: number): void {
   drawSummary();
 
   const key = song.selectedKey ?? song.originalKey;
+  const next = SETLIST[(index + 1) % SETLIST.length]!;
+
+  // A transicao e calculada no core; aqui so a executamos.
+  transitionPlan = planTransition({
+    mode: song.transition,
+    duration: song.durationSec,
+    padEnabled: song.padEnabled,
+    currentKey: key,
+    nextKey: next.selectedKey ?? next.originalKey,
+  });
+  advancing = false;
+
+  // O pad acompanha o tom do culto: se o tom mudou, ele troca com
+  // sobreposicao em vez de cortar.
+  if (engine.padEnabled()) engine.setPadKey(key);
+
   // Titulo sozinho: e o que o musico procura na tela, nao o nome do artista.
   $('song-title').textContent = song.title;
   $('meta-key').textContent = key;
@@ -255,6 +273,20 @@ function frame(): void {
     engine.announce(upcoming.label, now);
   }
 
+  // Transicao para a proxima musica, no momento que o plano definiu.
+  // A demo troca o arranjo no ponto planejado e o pad cobre a emenda; um
+  // crossfade real, com as duas musicas soando juntas, precisa de dois grafos
+  // de audio e e trabalho da engine nativa.
+  if (transitionPlan?.startNextAt !== null && transitionPlan !== null
+      && engine.playing && !advancing && now >= transitionPlan.startNextAt) {
+    advancing = true;
+    const index = SETLIST.findIndex((s) => s.id === song.id);
+    const nextIndex = (index + 1) % SETLIST.length;
+    log(`Transicao (${TRANSITION_LABEL[transitionPlan.mode]}) → <b>${SETLIST[nextIndex]!.title}</b>`, 'done');
+    loadSong(nextIndex);
+    void engine.play();
+  }
+
   const queuedSection = queuedPlan
     ? song.sections.find((s) => s.id === queuedPlan!.targetSectionId) ?? null
     : null;
@@ -336,6 +368,16 @@ function shiftBars(delta: number): number {
   return timeOfBar(song.grid, Math.max(1, bar + delta));
 }
 
+// Modo da mesa: preferencia do operador, nao consequencia do tamanho da tela.
+function setMixerMode(mode: 'rows' | 'faders'): void {
+  $('mixer').classList.toggle('is-faders', mode === 'faders');
+  $('mode-rows').classList.toggle('on', mode === 'rows');
+  $('mode-faders').classList.toggle('on', mode === 'faders');
+  try { localStorage.setItem('kronilab:mixer-mode', mode); } catch { /* modo privado */ }
+}
+$('mode-rows').addEventListener('click', () => setMixerMode('rows'));
+$('mode-faders').addEventListener('click', () => setMixerMode('faders'));
+
 $('view-toggle').addEventListener('click', () => {
   const mixerHidden = $('mixer-view').classList.contains('is-hidden');
   $('mixer-view').classList.toggle('is-hidden', !mixerHidden);
@@ -345,6 +387,18 @@ $('view-toggle').addEventListener('click', () => {
 $('next-song').addEventListener('click', () => {
   const i = SETLIST.findIndex((s) => s.id === song.id);
   loadSong((i + 1) % SETLIST.length);
+});
+
+$('pad-btn').addEventListener('click', () => {
+  if (engine.padEnabled()) {
+    engine.stopPad();
+    log('Pad desligado (fade out)');
+  } else {
+    const key = song.selectedKey ?? song.originalKey;
+    engine.setPadKey(key);
+    log(`Pad ligado em <b>${key}</b> (fade in)`);
+  }
+  $('pad-btn').classList.toggle('on', engine.padEnabled());
 });
 
 $('live-btn').addEventListener('click', () => $('live').classList.remove('is-hidden'));
@@ -379,5 +433,9 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('resize', () => drawSummary());
 
 loadSong(0);
+// Restaura a escolha anterior; na primeira visita, canais deitados.
+let savedMode: string | null = null;
+try { savedMode = localStorage.getItem('kronilab:mixer-mode'); } catch { /* modo privado */ }
+setMixerMode(savedMode === 'faders' ? 'faders' : 'rows');
 log('Toque PLAY. O audio e sintetizado no navegador — nenhuma gravacao envolvida.');
 requestAnimationFrame(frame);

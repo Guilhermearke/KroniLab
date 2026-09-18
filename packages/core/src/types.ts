@@ -306,6 +306,10 @@ export interface EventSongSettings {
   selectedTempo: number | null;
   position: number;
   notes: string | null;
+  /** O que acontece quando esta musica acaba. Ver transitions.ts. */
+  transition?: import('./transitions.ts').TransitionMode;
+  /** Pad segurando o tom por baixo do culto. */
+  padEnabled?: boolean;
   updatedAt: string;
 }
 

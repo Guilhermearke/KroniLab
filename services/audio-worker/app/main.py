@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from .config import get_settings
+from .importing import fetch_link_metadata
 from .models import JobRequest, JobStatus, ProcessingState
 from .pipeline.fingerprint import sha256_file
 from .queue import MemoryQueue
@@ -27,6 +28,20 @@ ALLOWED = {".mp3", ".wav", ".m4a", ".aac", ".flac"}
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "queue_depth": queue.depth(), "provider": settings.separation_provider}
+
+
+@app.get("/import/link")
+async def import_link(url: str) -> dict:
+    """
+    Identifica a musica a partir de um link (titulo e artista).
+
+    Nao baixa audio: o link serve para a musica ja nascer identificada. O
+    arquivo continua vindo da igreja, que e quem detem o direito de usa-lo.
+    """
+    try:
+        return await fetch_link_metadata(url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/jobs", response_model=JobStatus)

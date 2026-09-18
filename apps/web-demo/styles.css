@@ -59,7 +59,8 @@ body { display: flex; flex-direction: column; }
   font-size: 16px; display: grid; place-items: center;
 }
 .icon-btn.small { width: 32px; height: 32px; font-size: 18px; border-radius: 9px; }
-.icon-btn.save { border-color: #2C6E49; color: var(--green); }
+.icon-btn#pad-btn { width: auto; padding: 0 12px; font-size: 12px; font-weight: 800; letter-spacing: .5px; }
+.icon-btn#pad-btn.on { border-color: #2C6E49; color: var(--green); background: #0E2B1E; }
 .icon-btn:active { transform: translateY(1px); }
 
 .live-btn {
@@ -329,39 +330,48 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 6px rgba(255, 255, 255, .8); pointer-events: none;
 }
 
-/* ============================================================== TABLET ==
- * No palco o aparelho e um tablet deitado. Ai os canais viram faders
- * VERTICAIS lado a lado, como numa mesa de verdade — o operador acha o canal
- * pela posicao, nao lendo nome por nome.
- * ====================================================================== */
-@media (min-width: 900px) and (orientation: landscape) {
-  .setlist { padding-bottom: 8px; }
-  .sl-card { width: 168px; }
-  .sl-art { height: 78px; }
+/* =================================================== MODOS DE VISUALIZACAO ==
+ * Canais deitados ou faders verticais NAO dependem do tamanho da tela nem da
+ * orientacao: sao duas formas de ver a mesma mesa, e quem escolhe e o
+ * operador. Um tablet em pe pode querer faders; um celular deitado, canais.
+ * ========================================================================= */
+#mixer.is-faders {
+  display: flex; gap: 10px; overflow-x: auto; align-items: stretch;
+  flex: 1; min-height: 0; padding-bottom: 8px;
+}
+#mixer.is-faders .mx-row {
+  flex: none; width: 92px; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 12px 8px 10px; margin: 0;
+}
+#mixer.is-faders .mx-row.is-master { background: var(--panel-2); border-color: #33405c; }
+#mixer.is-faders .mx-edge { width: 44px; height: 4px; }
+#mixer.is-faders .mx-btn { width: 40px; height: 34px; font-size: 13px; }
+#mixer.is-faders .mx-name { font-size: 13px; order: 9; color: var(--muted); }
+#mixer.is-faders .mx-more { display: none; }
+/* Fader vertical de verdade. Rotacionar o input deixava a caixa de layout
+   deitada e ele invadia as colunas vizinhas; writing-mode resolve sem hack. */
+#mixer.is-faders .mx-fader {
+  flex: 1; width: 26px; min-height: 120px; margin: 10px 0;
+  writing-mode: vertical-lr; direction: rtl;
+  -webkit-appearance: slider-vertical; appearance: slider-vertical;
+}
+#mixer.is-faders .mx-knob { width: 38px; height: 38px; }
 
-  #mixer-view { overflow: hidden; display: flex; flex-direction: column; }
-  #mixer {
-    flex: 1; display: flex; gap: 10px; overflow-x: auto; align-items: stretch;
-    padding-bottom: 8px;
-  }
-  .mx-row {
-    flex: none; width: 92px; display: flex; flex-direction: column; align-items: center;
-    gap: 6px; padding: 12px 8px 10px; margin: 0;
-  }
-  .mx-row.is-master { background: var(--panel-2); border-color: #33405c; }
-  .mx-edge { width: 44px; height: 4px; }
-  .mx-btn { width: 40px; height: 34px; font-size: 13px; }
-  .mx-name { font-size: 13px; order: 9; color: var(--muted); }
-  .mx-more { display: none; }
+#mixer-view { display: flex; flex-direction: column; }
+#mixer-view:has(#mixer.is-faders) { overflow: hidden; }
 
-  /* Fader vertical de verdade. Rotacionar o input deixava a caixa de layout
-     deitada e ele invadia as colunas vizinhas; writing-mode resolve sem hack. */
-  .mx-fader {
-    flex: 1; width: 26px; min-height: 120px; margin: 10px 0;
-    writing-mode: vertical-lr; direction: rtl;
-    -webkit-appearance: slider-vertical; appearance: slider-vertical;
-  }
-  .mx-knob { width: 38px; height: 38px; }
+.view-modes { margin-left: auto; display: inline-flex; border-radius: 10px; overflow: hidden; }
+.view-modes button {
+  padding: 10px 14px; cursor: pointer; border: 1px solid var(--line); border-right: none;
+  background: var(--panel); color: var(--muted); font: inherit; font-size: 13px; font-weight: 700;
+}
+.view-modes button:last-child { border-right: 1px solid var(--line); }
+.view-modes button.on { background: #E8EDF7; color: #0B0F16; border-color: #E8EDF7; }
+
+/* Em telas largas o Live Mode ganha respiro, mas a hierarquia nao muda. */
+@media (min-width: 900px) {
+  .live { padding: 24px 28px 18px; }
+  .live-sections { grid-template-columns: repeat(2, 1fr); align-content: start; }
 }
 
 /* Em telas largas o Live Mode ganha respiro, mas a hierarquia nao muda. */

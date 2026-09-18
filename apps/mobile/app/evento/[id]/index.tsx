@@ -118,6 +118,10 @@ export default function CultoScreen() {
         })}
       </Card>
 
+      <Row>
+        <Button title="Editar escala" variant="ghost" onPress={() => router.push(`/evento/${id}/escala`)} />
+        <Button title="Editar repertorio" variant="ghost" onPress={() => router.push(`/evento/${id}/repertorio`)} />
+      </Row>
       <Button title="Baixar culto" onPress={() => router.push(`/evento/${id}/livecheck`)} />
       <Button title="Live Check" variant="ghost" onPress={() => router.push(`/evento/${id}/livecheck`)} />
     </Screen>

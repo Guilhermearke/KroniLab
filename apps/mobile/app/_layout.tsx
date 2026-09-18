@@ -21,6 +21,9 @@ export default function RootLayout() {
         <Stack.Screen name="evento/[id]/index" options={{ title: 'Culto' }} />
         <Stack.Screen name="evento/[id]/livecheck" options={{ title: 'Live Check' }} />
         <Stack.Screen name="evento/[id]/tom" options={{ title: 'Definir tom' }} />
+        <Stack.Screen name="evento/[id]/escala" options={{ title: 'Escala' }} />
+        <Stack.Screen name="evento/[id]/repertorio" options={{ title: 'Repertorio' }} />
+        <Stack.Screen name="evento/novo" options={{ title: 'Novo culto', presentation: 'modal' }} />
         <Stack.Screen name="estudo/[songId]" options={{ title: 'Estudar' }} />
         <Stack.Screen name="musica/nova" options={{ title: 'Nova musica', presentation: 'modal' }} />
       </Stack>

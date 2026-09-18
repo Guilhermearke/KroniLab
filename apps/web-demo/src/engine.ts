@@ -12,6 +12,7 @@
  */
 import { beatIndexAtTime } from '@kronilab/core';
 import type { Arrangement, Note } from './arrangement.ts';
+import { PadPlayer } from './pad.ts';
 import type { StemKey } from './data.ts';
 
 const LOOKAHEAD_SEC = 0.12;
@@ -38,6 +39,7 @@ export class DemoEngine {
   private channels = new Map<StemKey, Channel>();
   private arrangement: Arrangement | null = null;
   private noiseBuffer: AudioBuffer | null = null;
+  private pad: PadPlayer | null = null;
 
   private timer: number | null = null;
   private anchorCtx = 0;
@@ -71,6 +73,29 @@ export class DemoEngine {
     this.ctx = ctx;
     this.master = master;
     this.noiseBuffer = makeNoise(ctx);
+    // O pad nao passa pelos canais dos stems: ele e um colchao proprio, que
+    // continua soando quando a musica sai.
+    this.pad = new PadPlayer(ctx, master);
+  }
+
+  /** Liga o pad no tom do culto (ou troca o tom, com sobreposicao). */
+  setPadKey(key: string): void {
+    this.init();
+    if (!this.pad) return;
+    if (this.pad.enabled) this.pad.setKey(key);
+    else this.pad.start(key);
+  }
+
+  stopPad(): void {
+    this.pad?.stop();
+  }
+
+  padEnabled(): boolean {
+    return this.pad?.enabled ?? false;
+  }
+
+  padKey(): string | null {
+    return this.pad?.currentKey() ?? null;
   }
 
   load(arrangement: Arrangement, duration: number): void {
