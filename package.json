@@ -1,0 +1,14 @@
+{
+  "name": "levita",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Plataforma integrada de ministerio de louvor: igreja, cultos, escalas, repertorio, IA de VS, estudo, offline e live playback.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace @levita/core",
+    "mobile": "npm run start --workspace @levita/mobile"
+  }
+}

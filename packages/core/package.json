@@ -1,0 +1,17 @@
+{
+  "name": "@levita/core",
+  "version": "0.1.0",
+  "description": "Dominio + logica musical compartilhada (beat grid, tempo map, secoes, saltos quantizados, nudge, tap tempo, mixer, offline, live check).",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
