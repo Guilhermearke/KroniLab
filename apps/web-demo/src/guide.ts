@@ -12,6 +12,8 @@
  * um bipe de duas notas — pior que voz, melhor que silencio.
  */
 
+import { guideSampleFor, type SampleBank, type SampleName } from './samples.ts';
+
 export type GuideLead = 'bar' | 'two-beats';
 export type GuideVoiceMode = 'voice' | 'tone' | 'off';
 
@@ -40,8 +42,10 @@ export class Guide {
   private timer: number | null = null;
   private voices: SpeechSynthesisVoice[] = [];
   private toneOut: AudioNode;
+  /** Contagem falada ("um, dois, tres, quatro") no ultimo compasso da pre-contagem. */
+  spokenCount = true;
 
-  constructor(private ctx: AudioContext, out: AudioNode) {
+  constructor(private ctx: AudioContext, out: AudioNode, private samples: SampleBank | null = null) {
     this.toneOut = out;
     this.loadVoices();
     if (typeof speechSynthesis !== 'undefined') {
@@ -77,10 +81,21 @@ export class Guide {
     speechSynthesis.speak(u);
   }
 
-  /** Agenda o aviso para o instante `atCtxTime` do relogio de audio. */
+  /**
+   * Agenda o aviso para o instante `atCtxTime` do relogio de audio.
+   * Amostra gravada primeiro (timing exato); TTS quando a secao nao tem
+   * amostra; bipe quando nao ha voz nenhuma.
+   */
   cueAt(text: string, atCtxTime: number): void {
     this.cancel();
     if (this.settings.mode === 'off') return;
+    if (this.settings.mode === 'voice') {
+      const sample = guideSampleFor(text);
+      if (sample && this.samples?.has(sample)) {
+        this.samples.play(sample, atCtxTime, this.toneOut, 1);
+        return;
+      }
+    }
     const useVoice = this.settings.mode === 'voice' && this.hasVoice();
     if (!useVoice) {
       this.tone(atCtxTime);
@@ -96,6 +111,14 @@ export class Guide {
   cancel(): void {
     if (this.timer) window.clearTimeout(this.timer);
     this.timer = null;
+  }
+
+  /** "um, dois, tres, quatro" nos instantes dados (um por tempo). */
+  countAt(beatCtxTimes: number[]): void {
+    if (this.settings.mode !== 'voice' || !this.spokenCount || !this.samples) return;
+    beatCtxTimes.slice(0, 4).forEach((when, i) => {
+      this.samples!.play(`conta-${i + 1}` as SampleName, when, this.toneOut, 1);
+    });
   }
 
   private speak(text: string): void {

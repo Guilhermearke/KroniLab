@@ -12,11 +12,13 @@
  */
 import { timeOfBeatIndex } from '@kronilab/core';
 import type { BeatGrid } from '@kronilab/core';
+import type { SampleBank } from './samples.ts';
 
-export type ClickSound = 'cowbell' | 'woodblock' | 'rim' | 'beep';
+export type ClickSound = 'blip' | 'cowbell' | 'woodblock' | 'rim' | 'beep';
 export type Subdivision = 0.5 | 1 | 2;
 
 export const CLICK_SOUNDS: { id: ClickSound; label: string }[] = [
+  { id: 'blip', label: 'Blip' },
   { id: 'cowbell', label: 'Cowbell' },
   { id: 'woodblock', label: 'Woodblock' },
   { id: 'rim', label: 'Rimshot' },
@@ -66,18 +68,28 @@ export function buildClickEvents(
 /** Sintetiza um click no instante `when` do relogio de audio. */
 export class ClickSynth {
   private noise: AudioBuffer;
+  /** Acento no tempo 1 (o "A" do editor de referencia). Desligado = todos iguais. */
+  accent = true;
 
-  constructor(private ctx: AudioContext, private out: AudioNode) {
+  constructor(private ctx: AudioContext, private out: AudioNode, private samples: SampleBank | null = null) {
     this.noise = makeNoise(ctx);
   }
 
   play(sound: ClickSound, when: number, event: ClickEvent, gain = 1): void {
-    const level = gain * (event.accent ? 1 : event.offbeat ? 0.35 : 0.62);
+    const accent = this.accent && event.accent;
+    const level = gain * (accent ? 1 : event.offbeat ? 0.35 : this.accent ? 0.62 : 0.85);
+    if (sound === 'blip') {
+      // Blip gravado: 900 Hz, 22 ms. Acento = a mesma amostra um pouco mais
+      // alta e meio tom acima — o ouvido separa sem virar outro som.
+      const src = this.samples?.play('click-blip', when, this.out, level);
+      if (src) { if (accent) src.playbackRate.value = 1.06; return; }
+      return this.beep(when, level, accent); // sem amostra carregada
+    }
     switch (sound) {
-      case 'cowbell': return this.cowbell(when, level, event.accent);
-      case 'woodblock': return this.woodblock(when, level, event.accent);
-      case 'rim': return this.rim(when, level, event.accent);
-      default: return this.beep(when, level, event.accent);
+      case 'cowbell': return this.cowbell(when, level, accent);
+      case 'woodblock': return this.woodblock(when, level, accent);
+      case 'rim': return this.rim(when, level, accent);
+      default: return this.beep(when, level, accent);
     }
   }
 

@@ -8,25 +8,28 @@
  * escuro, com refletor batendo nela.
  */
 :root {
-  --bg: #05070B;
-  --panel: #10151F;
-  --panel-2: #172032;
-  --line: #222C3E;
-  --text: #EEF2FA;
-  --muted: #8B96AE;
+  /* Paleta calibrada pelo editor de referencia (docs/REFERENCIAS.md):
+     fundo quase preto, paineis azulados, verde de acao, roxo do palco. */
+  --bg: #04060A;
+  --panel: #13161F;
+  --panel-2: #1E2330;
+  --line: #1E293B;
+  --line-hover: #334155;
+  --text: #E5EAEE;
+  --muted: #8B929C;
   --accent: #F0A81F;
   --queued: #5B8CFF;
-  --green: #22C55E;
+  --green: #2FAE57;
   --purple: #7C3AED;
-  --lane-head: rgba(0, 0, 0, .34);
+  --lane-head: rgba(0, 0, 0, .30);
   /* Alturas compartilhadas por lane e strip: e o que mantem os dois alinhados. */
   --h-ruler: 40px;
   --h-chords: 38px;
   --h-click: 100px;
   --h-guide: 96px;
-  --h-stem: 84px;
-  --lane-gap: 4px;
-  --strips-w: 272px;
+  --h-stem: 80px;
+  --lane-gap: 2px;
+  --strips-w: 232px;
 }
 @media (max-width: 760px) {
   :root { --h-click: 84px; --h-guide: 82px; --h-stem: 62px; --strips-w: 156px; }
@@ -36,7 +39,7 @@
 
 html, body {
   margin: 0; height: 100%; background: var(--bg); color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
 }
 body { display: flex; flex-direction: column; }
@@ -85,7 +88,7 @@ body { display: flex; flex-direction: column; }
 .live-btn {
   flex: none; display: flex; align-items: center; gap: 7px; cursor: pointer;
   padding: 10px 14px; border-radius: 12px; border: none;
-  background: var(--purple); color: #fff; font: inherit; font-weight: 700; font-size: 15px;
+  background: linear-gradient(135deg, #8B5CF6, #7C3AED); color: #fff; font: inherit; font-weight: 700; font-size: 15px;
 }
 .live-btn .dot {
   width: 9px; height: 9px; border-radius: 50%; background: #fff;
@@ -725,3 +728,6 @@ input[type="range"].lf-fader::-moz-range-thumb { width: 26px; height: 14px; bord
   .tr-spacer { display: none; }
   .tr-chips { width: 100%; justify-content: flex-end; }
 }
+
+.lane-accent { font-weight: 800; font-size: 11px; }
+.lane-accent.on { background: #fff; color: #111; }

@@ -56,11 +56,13 @@ interface Prefs {
   countInEnabled: boolean;
   guideVoice: string | null;
   guideLead: 'bar' | 'two-beats';
+  clickAccent: boolean;
+  spokenCount: boolean;
 }
 const prefs: Prefs = loadPrefs();
 
 function loadPrefs(): Prefs {
-  const base: Prefs = { clickSound: 'cowbell', subdivision: 1, countInBars: 2, countInEnabled: true, guideVoice: null, guideLead: 'bar' };
+  const base: Prefs = { clickSound: 'blip', subdivision: 1, countInBars: 2, countInEnabled: true, guideVoice: null, guideLead: 'bar', clickAccent: true, spokenCount: true };
   try {
     const raw = localStorage.getItem('kronilab:prefs');
     return raw ? { ...base, ...JSON.parse(raw) } : base;
@@ -77,6 +79,8 @@ function applyPrefs(): void {
   const guide = engine.guideController();
   guide.settings.voiceName = prefs.guideVoice;
   guide.settings.lead = prefs.guideLead;
+  guide.spokenCount = prefs.spokenCount;
+  engine.clickSynthController().accent = prefs.clickAccent;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,8 +129,10 @@ function loadSong(index: number): void {
     subdivision: prefs.subdivision,
     onClickSound(sound) { prefs.clickSound = sound; savePrefs(); applyPrefs(); log(`Click: ${sound}`); },
     onSubdivision(sub) { prefs.subdivision = sub; savePrefs(); applyPrefs(); log(`Click em ${sub}x`); },
+    accent: prefs.clickAccent,
+    onAccent(on) { prefs.clickAccent = on; savePrefs(); applyPrefs(); log(`Acento no tempo 1: ${on ? 'ligado' : 'desligado'}`); },
     guideVoices: guide.availableVoices().map((v) => ({ name: v.name, label: v.name.replace(/\(.*\)/, '').trim() })),
-    guideVoice: prefs.guideVoice ?? guide.availableVoices()[0]?.name ?? null,
+    guideVoice: prefs.guideVoice,
     onGuideVoice(name) { prefs.guideVoice = name || null; savePrefs(); applyPrefs(); log(`Guia: ${name || 'bipe'}`); },
   });
   renderStrips($('strips'), engine, song);

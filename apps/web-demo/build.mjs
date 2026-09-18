@@ -23,6 +23,7 @@ const options = {
 await mkdir('dist', { recursive: true });
 await cp('index.html', 'dist/index.html');
 await cp('styles.css', 'dist/styles.css');
+await cp('samples', 'dist/samples', { recursive: true });
 
 if (process.argv.includes('--watch')) {
   const ctx = await context(options);

@@ -19,6 +19,8 @@ export interface TimelineOptions {
   subdivision: Subdivision;
   onClickSound(sound: ClickSound): void;
   onSubdivision(sub: Subdivision): void;
+  accent: boolean;
+  onAccent(on: boolean): void;
   guideVoices: { name: string; label: string }[];
   guideVoice: string | null;
   onGuideVoice(name: string): void;
@@ -133,7 +135,13 @@ export function renderTimeline(
   const soundOptions = CLICK_SOUNDS.map((c) => `<option value="${c.id}"${c.id === opts.clickSound ? ' selected' : ''}>${c.label}</option>`).join('');
   clickFooter.innerHTML = `
     <label class="lane-select"><span class="ico">🔊</span><select class="lane-native" data-role="click-sound">${soundOptions}</select><span class="chev">⌃</span></label>
-    <span class="seg">${([0.5, 1, 2] as Subdivision[]).map((sub) => `<button data-sub="${sub}"${sub === opts.subdivision ? ' class="on"' : ''}>${sub}x</button>`).join('')}</span>`;
+    <span class="seg">${([0.5, 1, 2] as Subdivision[]).map((sub) => `<button data-sub="${sub}"${sub === opts.subdivision ? ' class="on"' : ''}>${sub}x</button>`).join('')}</span>
+    <button class="lane-ico lane-accent${opts.accent ? ' on' : ''}" data-role="accent" title="Acento no tempo 1">A</button>`;
+  clickFooter.querySelector<HTMLButtonElement>('[data-role="accent"]')!.addEventListener('click', (e) => {
+    const b = e.currentTarget as HTMLButtonElement;
+    b.classList.toggle('on');
+    opts.onAccent(b.classList.contains('on'));
+  });
   clickFooter.querySelector<HTMLSelectElement>('[data-role="click-sound"]')!.addEventListener('change', (e) => {
     opts.onClickSound((e.target as HTMLSelectElement).value as ClickSound);
   });
@@ -163,9 +171,10 @@ export function renderTimeline(
   }
   guideLane.canvas.replaceWith(guideBlocks);
   const guideFooter = el('div', 'lane-footer');
-  const voiceOptions = opts.guideVoices.length
-    ? opts.guideVoices.map((v) => `<option value="${v.name}"${v.name === opts.guideVoice ? ' selected' : ''}>${v.label}</option>`).join('')
-    : '<option value="">Sem voz pt-BR — bipe</option>';
+  // "Voz gravada" e a amostra (Verso/Refrao/Instrumental/Final + contagem);
+  // as vozes do sistema cobrem as secoes sem amostra.
+  const voiceOptions = `<option value="">Voz gravada · PT-BR</option>` + opts.guideVoices
+    .map((v) => `<option value="${v.name}"${v.name === opts.guideVoice ? ' selected' : ''}>${v.label}</option>`).join('');
   guideFooter.innerHTML = `<label class="lane-select"><span class="ico">🌐</span><select class="lane-native" data-role="guide-voice">${voiceOptions}</select><span class="chev">⌃</span></label>`;
   guideFooter.querySelector<HTMLSelectElement>('[data-role="guide-voice"]')!.addEventListener('change', (e) => {
     opts.onGuideVoice((e.target as HTMLSelectElement).value);

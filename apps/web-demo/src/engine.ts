@@ -19,6 +19,7 @@ import type { Arrangement, Note } from './arrangement.ts';
 import { ClickSynth, buildClickEvents, type ClickSound, type Subdivision } from './click.ts';
 import { Guide } from './guide.ts';
 import { PadPlayer } from './pad.ts';
+import { SampleBank } from './samples.ts';
 import type { DemoSong, StemKey } from './data.ts';
 
 const LOOKAHEAD_SEC = 0.12;
@@ -57,6 +58,7 @@ export class DemoEngine {
   private pad: PadPlayer | null = null;
   private clickSynth: ClickSynth | null = null;
   private guide: Guide | null = null;
+  private samples: SampleBank | null = null;
 
   private timer: number | null = null;
   private anchorCtx = 0;
@@ -105,11 +107,20 @@ export class DemoEngine {
     // O pad nao passa pelos canais dos stems: ele e um colchao proprio, que
     // continua soando quando a musica sai.
     this.pad = new PadPlayer(ctx, master);
+    // Amostras (blip, vozes da guia, contagem): carregam em paralelo; ate la
+    // a sintese e o TTS cobrem.
+    this.samples = new SampleBank(ctx);
+    void this.samples.load();
     // Click e guia tem canal proprio (M/S/volume no mixer, como qualquer stem).
     const clickChannel = this.ensureChannel('click');
-    this.clickSynth = new ClickSynth(ctx, clickChannel.gain);
+    this.clickSynth = new ClickSynth(ctx, clickChannel.gain, this.samples);
     const guideChannel = this.ensureChannel('guide');
-    this.guide = new Guide(ctx, guideChannel.gain);
+    this.guide = new Guide(ctx, guideChannel.gain, this.samples);
+  }
+
+  clickSynthController(): ClickSynth {
+    this.init();
+    return this.clickSynth!;
   }
 
   audioContext(): AudioContext | null {
@@ -227,6 +238,19 @@ export class DemoEngine {
     this.clickScheduledUntil = from - 1e-6;
     this.guideCuedSectionId = null;
     this.playing = true;
+    // Contagem falada no ULTIMO compasso da pre-contagem: "um, dois, tres,
+    // quatro" e a musica entra — como o editor de referencia faz.
+    if (wantsCountIn && this.grid && this.guide && this.guideAudible()) {
+      const bpb = this.grid.timeSignature.beatsPerBar;
+      const beat = beatIndexNear(this.grid, start);
+      const barStart = Math.floor(beat / bpb) * bpb;
+      const times = Array.from({ length: bpb }, (_, i) => this.ctxTimeOf(timeOfBeatIndex(this.grid!, barStart - bpb + i)));
+      this.guide.countAt(times);
+      // A secao 1 e anunciada pelo scheduler um compasso antes; durante a
+      // contagem falada isso colidiria — marca como ja anunciada.
+      const first = this.sections.find((sec) => timeOfBar(this.grid!, sec.startBar) <= start + 0.01 && timeOfBar(this.grid!, sec.endBar) > start);
+      if (first) this.guideCuedSectionId = first.id;
+    }
     this.startMix(this.ctxTimeOf(Math.max(start, 0)), Math.max(start, 0));
     this.timer = window.setInterval(() => this.tick(), TICK_MS);
     this.tick();

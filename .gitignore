@@ -14,3 +14,6 @@ venv/
 *.db
 *.wav
 .DS_Store
+
+# Amostras de audio de terceiro (ver docs/REFERENCIAS.md): ficam locais.
+apps/web-demo/samples/*.wav

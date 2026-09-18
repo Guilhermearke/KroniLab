@@ -63,6 +63,35 @@ armazenamento (2 GB).
   Mode que a demo ainda não tem.
 - Limite de 15 min / 150 MB por arquivo é uma referência de custo de GPU.
 
+### Medições feitas na exportação (18/09/2026)
+
+Da exportação de "Nívea Soares — Rio (Ao Vivo)" (click.wav, guide.wav) e do
+DOM da tela:
+
+- **Click**: um único som em todos os tempos — *blip* de ~900 Hz, 22 ms, sem
+  acento por padrão (o botão `A` liga o acento). Pico 0,58. Só 71 dos 992
+  tempos batem com BPM fixo: a grade deles é de **andamento variável**
+  (gravação ao vivo). Confirma o desenho do nosso beat grid beat a beat.
+- **Guia**: fala o nome da seção **um compasso antes** dela (2,08 s → seção em
+  4,21 s a 115 BPM); na primeira seção fala em t=0. "Verso" ≈ 0,52 s,
+  "Refrão" ≈ 0,59 s, "Instrumental" ≈ 0,97 s. Nível RMS ≈ 0,31 (≈ −5 dB
+  abaixo do click).
+- **Contagem falada**: "um, dois, três, quatro", um por tempo, no último
+  compasso antes da seção que abre a música.
+- **Layout**: coluna de controles 200 px; faixa 80 px (waveform 50 px);
+  cabeçalho 80 px (ferramentas 40 + M/S 40); cifras 40 px; régua 40 px;
+  transporte 100 px, play 48 px. Paleta: fundo `#04060a`, painel `#13161f`,
+  painel-2 `#1e2330`, borda `#1e293b`, verde `#2fae57`, texto `#e5eaee`.
+  Faixas: click `#64748b`, guia `#8b5cf6`, vocais `#f20d0d`, bateria
+  `#f2b90d`, baixo `#94c20a`, guitarra `#0ac238`, piano `#0ac285`, outro
+  `#f20d80`. Fonte Inter.
+
+> **Amostras** (`apps/web-demo/samples/`: blip, Verso/Refrão/Instrumental/
+> Saída, contagem 1–4): a engine toca qualquer WAV com esses nomes; sem eles,
+> síntese e TTS cobrem. Os recortes da exportação da CueWee ficam **fora do
+> git** (`.gitignore`) — são áudio de terceiro. Para o deploy, gravar amostras
+> próprias com esses nomes (ou subir os recortes por conta própria).
+
 ### O que o CueWee não faz (e o KroniLab faz)
 
 - Nada de igreja, escala, culto, quem toca o quê. É uma ferramenta de músico

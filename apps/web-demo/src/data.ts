@@ -21,12 +21,12 @@ export interface StemMeta {
 
 /** Cores das lanes. Cada stem tem a sua e ela se repete no mixer. */
 export const STEMS: StemMeta[] = [
-  { key: 'vocals', label: 'Vocais', color: '#E8112D' },
-  { key: 'drums', label: 'Bateria', color: '#E0A800' },
-  { key: 'bass', label: 'Baixo', color: '#8CC000' },
-  { key: 'guitar', label: 'Guitarra', color: '#22B14C' },
-  { key: 'keys', label: 'Piano', color: '#12B886' },
-  { key: 'other', label: 'Outro', color: '#E91E8C' },
+  { key: 'vocals', label: 'Vocais', color: '#F20D0D' },
+  { key: 'drums', label: 'Bateria', color: '#F2B90D' },
+  { key: 'bass', label: 'Baixo', color: '#94C20A' },
+  { key: 'guitar', label: 'Guitarra', color: '#0AC238' },
+  { key: 'keys', label: 'Piano', color: '#0AC285' },
+  { key: 'other', label: 'Outro', color: '#F20D80' },
 ];
 
 export const MIX_STEM: StemMeta = { key: 'mix', label: 'Mix', color: '#2F80ED' };
@@ -36,8 +36,8 @@ export function stemsFor(song: DemoSong): StemMeta[] {
   return song.audio ? [MIX_STEM] : STEMS;
 }
 
-export const CLICK_COLOR = '#6B7A8F';
-export const GUIDE_COLOR = '#7C4DFF';
+export const CLICK_COLOR = '#64748B';
+export const GUIDE_COLOR = '#8B5CF6';
 
 /** Acorde: semitons acima da tonica + qualidade. */
 export interface Chord {
