@@ -1,11 +1,11 @@
 """
-Orquestracao do pipeline (itens 6 e 30).
+Orquestração do pipeline de processamento de áudio.
 
-Upload -> normalizacao -> hash -> dedup -> stems -> analise -> beat grid ->
-BPM -> compasso -> tom -> secoes -> click -> guia -> waveforms -> persistencia.
+Upload → normalização → hash → dedup → stems (SeparationEngine) →
+beat tracking variável → tom → seções → click → guia → waveforms → upload.
 
-Cada etapa publica estado e progresso: o app mostra "Separando instrumentos"
-em tempo real, nao uma barra falsa.
+Cada etapa reporta estado e progresso: o app mostra "Separando instrumentos"
+em tempo real, não uma barra falsa.
 """
 from __future__ import annotations
 
@@ -16,12 +16,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ..models import Analysis, Beat as BeatModel, GuideCue, JobRequest, JobResult, ProcessingState, Section as SectionModel, StemFile, TempoSegment
-from .analysis import analyze, label_boundaries
+from ..models import (
+    Analysis, Beat as BeatModel, GuideCue, JobRequest, JobResult,
+    ProcessingState, Section as SectionModel, StemFile, TempoSegment,
+)
 from .fingerprint import sha256_file
-from .grid import click_events, guide_cues, snap_sections
+from .grid import click_events, guide_cues, snap_sections, build_grid
 from .render import compute_peaks, render_click, render_guide
-from .separation import get_provider
+
+# Importa do novo módulo audio_ai
+from audio_ai.separation.registry import get_engine
+from audio_ai.analysis.tempo import beat_track_variable, build_tempo_map, average_bpm
+from audio_ai.analysis.sections import detect_sections
+from audio_ai.analysis.key import detect_key
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +45,11 @@ class PipelineDeps:
     click_sound: str = "digital"
 
 
-def run_pipeline(job: JobRequest, deps: PipelineDeps, on_progress: ProgressFn = lambda s, p: None) -> JobResult:
+def run_pipeline(
+    job: JobRequest,
+    deps: PipelineDeps,
+    on_progress: ProgressFn = lambda s, p: None,
+) -> JobResult:
     work = deps.work_dir / job.song_id
     work.mkdir(parents=True, exist_ok=True)
 
@@ -50,28 +61,69 @@ def run_pipeline(job: JobRequest, deps: PipelineDeps, on_progress: ProgressFn = 
 
     existing = deps.find_existing_by_hash(job.church_id, sha)
     if existing is not None:
-        # Mesmo audio ja processado nesta igreja: reaproveita tudo.
         log.info("dedup hit sha=%s song=%s", sha[:12], job.song_id)
         on_progress(ProcessingState.completed, 1.0)
         return existing.model_copy(update={"song_id": job.song_id, "deduplicated": True})
     on_progress(ProcessingState.preparing, 1.0)
 
-    # --- separating ----------------------------------------------------------
+    # --- separating: BS-RoFormer ou mock -------------------------------------
     on_progress(ProcessingState.separating, 0.0)
-    provider = get_provider(deps.provider_name)
-    stems = provider.separate(normalized, work / "stems")
+    engine = get_engine(deps.provider_name)
+    stem_result = engine.separate(normalized, work / "stems")
+    log.info(
+        "Separação concluída: engine=%s model=%s version=%s stems=%s",
+        stem_result.provider, stem_result.model_name, stem_result.model_version,
+        list(stem_result.stems.keys()),
+    )
     on_progress(ProcessingState.separating, 1.0)
 
-    # --- analyzing -----------------------------------------------------------
+    # --- analyzing: beat tracking variável + tom + seções --------------------
     on_progress(ProcessingState.analyzing, 0.0)
-    a = analyze(normalized)
-    grid = a["grid"]
-    sections = snap_sections(label_boundaries(a["boundary_times"], a["duration"]), grid)
+
+    # Beat tracking com andamento variável (Ellis DP via librosa)
+    beats = beat_track_variable(normalized)
+    beats_per_bar = 4  # A maioria do louvor é 4/4
+    duration_sec = _audio_duration(normalized)
+
+    # Converte para o formato usado pelo restante do pipeline
+    from .grid import Beat as GridBeat
+    grid = [
+        GridBeat(
+            index=b.index, bar=b.bar, beat=b.beat,
+            timestamp=b.timestamp, downbeat=b.downbeat,
+        )
+        for b in beats
+    ]
+
+    # Tom via chroma
+    import librosa, numpy as np
+    y, sr = librosa.load(str(normalized), mono=True, sr=None)
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    chroma_mean = np.mean(chroma, axis=1).tolist()
+    key, mode, key_confidence = detect_key(chroma_mean)
+
+    # Seções via auto-similaridade
+    sections_raw = detect_sections(str(normalized), beats)
+    sections = [
+        type("Section", (), {
+            "type": s.type, "label": s.label,
+            "start_bar": s.start_bar, "end_bar": s.end_bar,
+        })()
+        for s in sections_raw
+    ]
+
+    # Tempo map (segmentos de BPM estável)
+    tempo_segs = build_tempo_map(beats)
+    bpm = average_bpm(beats)
+    bpm_confidence = _beat_confidence(grid)
+
     on_progress(ProcessingState.analyzing, 1.0)
 
     # --- click ---------------------------------------------------------------
     on_progress(ProcessingState.generating_click, 0.0)
-    click_path = render_click(click_events(grid), a["duration"], work / "click.wav", deps.click_sound)
+    click_path = render_click(
+        click_events(grid), duration_sec, work / "click.wav", deps.click_sound
+    )
     on_progress(ProcessingState.generating_click, 1.0)
 
     # --- guia ----------------------------------------------------------------
@@ -79,12 +131,12 @@ def run_pipeline(job: JobRequest, deps: PipelineDeps, on_progress: ProgressFn = 
     guide_path = None
     if job.generate_guide:
         on_progress(ProcessingState.generating_guide, 0.0)
-        guide_path = render_guide(cues, grid, a["duration"], work / "guide.wav")
+        guide_path = render_guide(cues, grid, duration_sec, work / "guide.wav")
         on_progress(ProcessingState.generating_guide, 1.0)
 
     # --- upload --------------------------------------------------------------
     on_progress(ProcessingState.uploading, 0.0)
-    files: dict[str, Path] = dict(stems.paths)
+    files: dict[str, Path] = dict(stem_result.stems)
     files["click"] = click_path
     if guide_path:
         files["guide"] = guide_path
@@ -92,32 +144,45 @@ def run_pipeline(job: JobRequest, deps: PipelineDeps, on_progress: ProgressFn = 
     stem_files: list[StemFile] = []
     waveforms: dict[str, list[float]] = {}
     for i, (stem, path) in enumerate(files.items()):
-        key = f"songs/{job.song_id}/{stem}{path.suffix}"
-        deps.upload(path, key)
+        key_r2 = f"songs/{job.song_id}/{stem}{path.suffix}"
+        deps.upload(path, key_r2)
         stem_files.append(StemFile(
-            stem=stem, path=key, bytes=path.stat().st_size, sha256=sha256_file(path)
+            stem=stem, path=key_r2,
+            bytes=path.stat().st_size, sha256=sha256_file(path),
         ))
         try:
             waveforms[stem] = compute_peaks(path)
-        except Exception as exc:  # waveform e cosmetico: nunca derruba o job
+        except Exception as exc:
             log.warning("waveform falhou para %s: %s", stem, exc)
         on_progress(ProcessingState.uploading, (i + 1) / len(files))
 
     result = JobResult(
         song_id=job.song_id,
         sha256=sha,
-        duration_sec=a["duration"],
+        duration_sec=duration_sec,
         analysis=Analysis(
-            key=a["key"], mode=a["mode"], key_confidence=a["key_confidence"],
-            bpm=a["bpm"], bpm_confidence=a["bpm_confidence"],
-            beats_per_bar=a["beats_per_bar"], beat_unit=4,
+            key=key, mode=mode, key_confidence=key_confidence,
+            bpm=bpm, bpm_confidence=bpm_confidence,
+            beats_per_bar=beats_per_bar, beat_unit=4,
         ),
-        beats=[BeatModel(**b.dict()) for b in grid],
-        tempo_map=[TempoSegment(**s) for s in a["tempo_map"]],
-        sections=[SectionModel(type=s.type, label=s.label, start_bar=s.start_bar, end_bar=s.end_bar) for s in sections],
+        beats=[BeatModel(**{
+            "index": b.index, "bar": b.bar, "beat": b.beat,
+            "timestamp": b.timestamp, "downbeat": b.downbeat,
+        }) for b in beats],
+        tempo_map=[TempoSegment(start_time=s["start_time"], bpm=s["bpm"]) for s in tempo_segs],
+        sections=[
+            SectionModel(
+                type=s.type, label=s.label,
+                start_bar=s.start_bar, end_bar=s.end_bar,
+            )
+            for s in sections_raw
+        ],
         guide_cues=[GuideCue(**c) for c in cues],
         stems=stem_files,
         waveforms=waveforms,
+        # Registro do modelo usado (para o Model Registry)
+        model_name=stem_result.model_name,
+        model_version=stem_result.model_version,
     )
     on_progress(ProcessingState.completed, 1.0)
     return result
@@ -125,10 +190,10 @@ def run_pipeline(job: JobRequest, deps: PipelineDeps, on_progress: ProgressFn = 
 
 def normalize(source: Path, out: Path) -> Path:
     """
-    Converte para WAV mono-preservado 44.1k e nivela o volume.
+    Converte para WAV 44.1 kHz estéreo e nivela o volume (loudnorm).
 
-    Sem isso, MP3 de 128k e WAV de estudio produzem analises diferentes para a
-    mesma musica — e a dedup por hash nao ajuda quando o arquivo e outro.
+    Sem isso, MP3 de 128k e WAV de estúdio produzem análises diferentes
+    para a mesma música — e a dedup por hash não ajuda.
     """
     out.parent.mkdir(parents=True, exist_ok=True)
     if shutil.which("ffmpeg") is None:
@@ -140,3 +205,22 @@ def normalize(source: Path, out: Path) -> Path:
         check=True, capture_output=True,
     )
     return out
+
+
+def _audio_duration(path: Path) -> float:
+    """Duração do áudio em segundos."""
+    import soundfile as sf
+    info = sf.info(str(path))
+    return float(info.duration)
+
+
+def _beat_confidence(grid) -> float:
+    """Batida estável = confiança alta."""
+    spans = [b.timestamp - a.timestamp for a, b in zip(grid, grid[1:])]
+    if len(spans) < 4:
+        return 0.0
+    mean = sum(spans) / len(spans)
+    if mean <= 0:
+        return 0.0
+    sd = (sum((s - mean) ** 2 for s in spans) / len(spans)) ** 0.5
+    return round(max(0.0, min(1.0, 1 - (sd / mean) * 6)), 3)

@@ -1,10 +1,12 @@
 /**
- * Musicas importadas ficam no IndexedDB do navegador: o arquivo e os dados
- * que o usuario ajustou (BPM, primeiro beat, secoes). Recarregar a pagina
- * nao pode apagar o culto de domingo.
+ * Músicas importadas ficam no IndexedDB do navegador: o arquivo, os stems
+ * e os dados que o usuário ajustou (BPM, beats, seções).
  *
- * E o mesmo papel do banco local do app (SQLite): fonte de verdade offline,
- * sincronizada com o Supabase quando existe conexao.
+ * Versões do schema:
+ *   v1: campo `blob` + metadados básicos
+ *   v2: adiciona `stems` (Record<string, Blob>) e `beats` (number[])
+ *
+ * Recarregar a página não pode apagar o culto de domingo.
  */
 import type { SectionType } from '@kronilab/core';
 
@@ -26,17 +28,29 @@ export interface StoredSong {
   fileName: string;
   blob: Blob;
   createdAt: number;
+  /** v2: timestamps dos beats rastreados (grade variável). */
+  beats?: number[];
+  /** v2: blobs dos stems separados, indexados por StemKey. */
+  stems?: Record<string, Blob>;
 }
 
 const DB = 'kronilab-demo';
 const STORE = 'songs';
+const DB_VERSION = 2;
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => {
+    const req = indexedDB.open(DB, DB_VERSION);
+    req.onupgradeneeded = (ev) => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      const oldVersion = ev.oldVersion;
+      // v1: cria o object store
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: 'id' });
+      }
+      // v2: campos `beats` e `stems` são opcionais em JS — nenhuma migração
+      // estrutural necessária no IDB; os registros antigos simplesmente não os têm.
+      void oldVersion; // documentado mas sem ação extra necessária
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

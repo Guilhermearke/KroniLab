@@ -16,6 +16,17 @@ soundfile==0.12.1
 librosa==0.10.2.post1
 ffmpeg-python==0.2.0
 
-# Separacao de stems (GPU) — instalado so na imagem do worker
-# torch==2.4.1
-# demucs==4.0.1
+# Separação de stems (BS-RoFormer via MSST)
+# Instalar na imagem do worker (requer CUDA):
+#
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#   git clone https://github.com/ZFTurbo/Music-Source-Separation-Training msst
+#   pip install -e msst
+#   pip install ml_collections einops rotary-embedding-torch
+#
+# Para dev local sem GPU (usa MockEngine automaticamente):
+#   nenhuma instalação extra necessária — o engine detecta a ausência e faz fallback
+
+# Cloud fallback (Replicate)
+# replicate==0.31.0   # descomentar se for usar ReplicateEngine
+# requests==2.32.3    # idem

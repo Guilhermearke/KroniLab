@@ -1,0 +1,77 @@
+# KroniLab — Kroni Separation Base (4 stems)
+# Modelo inicial: vocals / drums / bass / other
+#
+# Checkpoint de partida (para fine-tune):
+#   model_bs_roformer_ep_317_sdr_12.9755.ckpt
+#
+# Para treinar:
+#   python train.py --config training/configs/kroni_base_4stem.yaml
+#
+# Para validar:
+#   python valid.py --config training/configs/kroni_base_4stem.yaml
+#   python inference.py --config training/configs/kroni_base_4stem.yaml
+#                       --model_type bs_roformer
+#                       --start_check_point models/kroni_base_4stem_best.ckpt
+#                       --input_folder path/to/test/wavs
+#                       --store_dir path/to/output
+
+model_type: bs_roformer
+model:
+  # Arquitetura BS-RoFormer (lucidrains)
+  # Esses parâmetros correspondem ao checkpoint público viperx
+  # Ajustar se usar um checkpoint diferente
+  dim: 512
+  depth: 12
+  heads: 8
+  dim_head: 64
+  attn_flash: true
+  ff_mult: 4
+  num_stems: 4          # vocals, drums, bass, other
+  time_transformer_depth: 2
+  freq_transformer_depth: 2
+
+training:
+  # Stems que o modelo vai aprender a separar
+  instruments:
+    - vocals
+    - drums
+    - bass
+    - other
+
+  # Áudio
+  target_instrument: null       # null = todos os stems simultaneamente
+  num_channels: 2               # estéreo
+  sample_rate: 44100
+  chunk_size: 485100            # ~11 s (chunk_size / sample_rate)
+  min_seconds: 8.0
+  max_seconds: 12.0
+
+  # Treinamento
+  batch_size: 4
+  num_workers: 4
+  num_epochs: 300
+  lr: 3.0e-4
+  optimizer: adamw
+  patience: 10
+
+  # Augmentação
+  augmentation:
+    enable_pitch_shift: false   # cuidado: lento sem GPU rápida
+    enable_time_stretch: false
+    enable_loudness: true
+    min_loudness: -6
+    max_loudness: 6
+
+  # Checkpoints e logs
+  results_path: models/checkpoints/kroni_base_4stem
+  wandb_key: ""                 # opcional
+
+# Dataset (preencher quando tiver multitracks autorizados)
+datasets:
+  musdb18hq:
+    path: dataset/musdb18hq     # MUSDB18-HQ como base inicial
+    type: musdb18
+  kroni:
+    path: dataset/kroni         # nossos multitracks (futuro)
+    type: stem_folder
+    allow_missing: true         # não falha se o dir não existir ainda

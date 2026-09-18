@@ -1,24 +1,28 @@
 /**
- * Importar musica: um arquivo de audio vira uma musica com beat grid.
+ * Importação de áudio: decodificação, análise de tempo e picos de waveform.
  *
- * O que sai daqui e o que o worker de IA entrega no produto, so que sem os
- * stems: BPM, tempo do primeiro beat, duracao e a forma de onda. Com isso o
- * Studio ja toca a gravacao com click e guia por cima, e o Live Mode salta
- * entre secoes na batida. A separacao em stems e o unico passo que precisa
- * de GPU — e por isso fica no worker, nao no navegador.
+ * Duas fontes de áudio convivem no mesmo relógio:
+ *   - Gravação inteira como "Mix" (um único arquivo)
+ *   - Stems separados (vários arquivos: vocals.wav, drums.wav, ...)
  *
- * A deteccao de BPM e classica (envelope de onsets + autocorrelacao) e acerta
- * a grande maioria das musicas de louvor, que tem bateria marcada. Quando
- * erra, erra por oitava (72 vs 144) — e a tela deixa corrigir com um toque.
+ * Beat tracking usa programação dinâmica estilo Ellis (2007):
+ *   custo(i,j) = onset[j] − λ·(log₂(Δt·fps / τ))²
+ * onde τ é o lag da autocorrelação global. Isso gera timestamps REAIS de
+ * cada beat, seguindo o andamento variável de gravações ao vivo.
+ *
+ * O core já aceita BeatGrid com beats irregulares — essa é a ponte.
  */
+
+import type { Beat, BeatGrid } from '@kronilab/core';
+import type { StemKey } from './data.ts';
 
 export interface TempoAnalysis {
   bpm: number;
-  /** Segundos ate o primeiro downbeat estimado. */
+  /** Segundos até o primeiro downbeat estimado. */
   firstDownbeatAt: number;
-  /** 0..1 — quao destacado foi o pico de autocorrelacao. */
+  /** 0..1 — quão destacado foi o pico de autocorrelação. */
   confidence: number;
-  /** Alternativas por oitava, para o usuario corrigir num toque. */
+  /** Alternativas por oitava, para o usuário corrigir num toque. */
   alternatives: number[];
 }
 
@@ -30,8 +34,80 @@ export interface ImportedAudio {
   bytes: number;
 }
 
+/** Resultado da importação de múltiplos stems. */
+export interface StemImportResult {
+  /** Stems reconhecidos pelo nome do arquivo. */
+  stems: Map<StemKey, ImportedAudio>;
+  /** Arquivos não reconhecidos como stem (ficam como Mix se for só 1). */
+  unrecognized: File[];
+}
+
 const HOP = 512;
 const FRAME = 1024;
+
+// ---------------------------------------------------------------------------
+// Importação de múltiplos stems por nome de arquivo
+// ---------------------------------------------------------------------------
+
+/** Mapa de padrões de nome de arquivo → StemKey. */
+const STEM_NAME_MAP: Array<{ patterns: RegExp[]; key: StemKey }> = [
+  { patterns: [/vocal/i, /voc\b/i, /voice/i, /lead/i], key: 'vocals' },
+  { patterns: [/drum/i, /bat/i, /perc/i], key: 'drums' },
+  { patterns: [/bass/i, /baix/i], key: 'bass' },
+  { patterns: [/guitar/i, /guit/i, /viol/i], key: 'guitar' },
+  { patterns: [/piano/i, /key/i, /teclado/i, /synth/i, /pad\b/i], key: 'keys' },
+  { patterns: [/other/i, /outro/i, /misc/i], key: 'other' },
+];
+
+/**
+ * Detecta o StemKey pelo nome do arquivo.
+ * "piano.wav" → "keys"; "vocals.wav" → "vocals"; "outro.wav" → null
+ * (não confundir "outro" como stem com "Outro" como seção).
+ */
+export function stemKeyFromFileName(name: string): StemKey | null {
+  const base = name.replace(/\.[^.]+$/, '').toLowerCase();
+  for (const { patterns, key } of STEM_NAME_MAP) {
+    if (patterns.some((p) => p.test(base))) return key;
+  }
+  return null;
+}
+
+/**
+ * Importa múltiplos arquivos de stem em paralelo.
+ * Cada arquivo é mapeado por nome → StemKey.
+ * Retorna stems reconhecidos e lista de não-reconhecidos.
+ */
+export async function importStemFiles(
+  ctx: AudioContext,
+  files: File[],
+): Promise<StemImportResult> {
+  const stems = new Map<StemKey, ImportedAudio>();
+  const unrecognized: File[] = [];
+
+  await Promise.all(
+    files.map(async (file) => {
+      const key = stemKeyFromFileName(file.name);
+      if (!key) {
+        unrecognized.push(file);
+        return;
+      }
+      const buffer = await decodeAudioFile(ctx, file);
+      const audio: ImportedAudio = {
+        buffer,
+        peaks: computeBufferPeaks(buffer),
+        fileName: file.name,
+        bytes: file.size,
+      };
+      stems.set(key, audio);
+    }),
+  );
+
+  return { stems, unrecognized };
+}
+
+// ---------------------------------------------------------------------------
+// Decodificação e picos
+// ---------------------------------------------------------------------------
 
 export async function decodeAudioFile(ctx: AudioContext, file: File | Blob): Promise<AudioBuffer> {
   const bytes = await file.arrayBuffer();
@@ -52,19 +128,121 @@ export function computeBufferPeaks(buffer: AudioBuffer, samplesPerSecond = 40): 
     }
     peaks[i] = max;
   }
-  // Normaliza pelo pico global: gravacao baixa nao vira lane vazia.
+  // Normaliza pelo pico global: gravação baixa não vira lane vazia.
   const top = Math.max(0.05, ...peaks);
   return peaks.map((p) => p / top);
 }
 
-/** BPM e primeiro downbeat a partir do audio. */
+// ---------------------------------------------------------------------------
+// Beat tracking com andamento variável — Ellis (2007)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rastreia beats com andamento variável.
+ *
+ * Algoritmo de programação dinâmica (Ellis, 2007):
+ *   - Calcula o lag global τ por autocorrelação
+ *   - Para cada frame de onset, avalia o custo de "beat aqui" dado o
+ *     beat anterior: score[i] = onset[i] − λ·(log₂(Δt·fps/τ))²
+ *   - Backtrack do frame de maior energia para trás
+ *   - Downbeat: grupo de 4 beats com maior energia grave = o "1"
+ *
+ * Retorna Beat[] compatível com o core (grade irregular OK).
+ */
+export function trackBeats(buffer: AudioBuffer): Beat[] {
+  const sr = buffer.sampleRate;
+  const mono = toMono(buffer);
+  const { full: onset, low } = onsetEnvelope(mono);
+  const fps = sr / HOP;
+  const n = onset.length;
+
+  // 1. Lag global por autocorrelação (τ = período médio dos beats)
+  const tau = globalLag(onset, fps);
+  if (tau < 1) return [];
+
+  // 2. Programação dinâmica estilo Ellis
+  //    tightness λ: quanto penaliza desvios do período global
+  //    100 = flexível (ao vivo); 400 = rígido (estúdio)
+  const lambda = 100.0;
+  const score = new Float32Array(n);
+  const prev = new Int32Array(n).fill(-1);
+
+  score[0] = onset[0]!;
+  for (let i = 1; i < n; i++) {
+    // Janela de busca: 0.5τ … 2τ atrás
+    const lo = Math.max(0, Math.round(i - tau * 2));
+    const hi = Math.max(0, Math.round(i - tau * 0.5));
+    let bestScore = -Infinity;
+    let bestJ = lo;
+    for (let j = lo; j <= hi; j++) {
+      const dt = i - j; // em frames
+      const deviation = Math.log2(dt / tau);
+      const cost = score[j]! - lambda * deviation * deviation;
+      if (cost > bestScore) { bestScore = cost; bestJ = j; }
+    }
+    score[i] = onset[i]! + bestScore;
+    prev[i] = bestJ;
+  }
+
+  // 3. Backtrack a partir do frame de maior score
+  const beatFrames: number[] = [];
+  let cur = score.indexOf(Math.max(...score));
+  while (cur > 0 && prev[cur] !== undefined && prev[cur]! >= 0) {
+    beatFrames.push(cur);
+    cur = prev[cur]!;
+  }
+  beatFrames.push(cur);
+  beatFrames.reverse();
+
+  if (beatFrames.length === 0) return [];
+
+  // 4. Converte frames → timestamps
+  const beatTimes = beatFrames.map((f) => (f * HOP + FRAME / 2) / sr);
+
+  // 5. Downbeat: qual dos 4 beats tem mais energia grave
+  const lowAtBeats = beatFrames.map((f) => low[Math.min(f, low.length - 1)]!);
+  const phase = bestDownbeatPhase(lowAtBeats, 4);
+
+  // 6. Monta objetos Beat
+  const beats: Beat[] = [];
+  let bar = 1;
+  for (let i = 0; i < beatTimes.length; i++) {
+    const beatInBar = ((i - phase + beatTimes.length * 4) % 4) + 1;
+    if (beatInBar === 1 && i > 0) bar++;
+    beats.push({
+      index: i,
+      bar,
+      beat: beatInBar,
+      timestamp: Math.round(beatTimes[i]! * 1e6) / 1e6,
+      downbeat: beatInBar === 1,
+    });
+  }
+  return beats;
+}
+
+/**
+ * Constrói um BeatGrid direto dos beats rastreados.
+ * Compatível com a interface do @kronilab/core.
+ */
+export function buildBeatGridFromBeats(beats: Beat[], duration: number): BeatGrid {
+  return {
+    timeSignature: { beatsPerBar: 4, beatUnit: 4 },
+    beats,
+    duration,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Análise de BPM fixo (legado: para músicas de estúdio e as alternativas)
+// ---------------------------------------------------------------------------
+
+/** BPM e primeiro downbeat a partir do áudio (grade fixa). */
 export function analyzeTempo(buffer: AudioBuffer): TempoAnalysis {
   const sr = buffer.sampleRate;
   const mono = toMono(buffer);
   const { full: onset, low } = onsetEnvelope(mono);
   const fps = sr / HOP;
 
-  // Autocorrelacao so na faixa musical util. Fora dela e ruido de analise.
   const minLag = Math.floor((60 / 200) * fps);
   const maxLag = Math.ceil((60 / 55) * fps);
   const n = onset.length;
@@ -73,14 +251,12 @@ export function analyzeTempo(buffer: AudioBuffer): TempoAnalysis {
   for (let lag = minLag; lag <= maxLag; lag++) {
     let sum = 0;
     for (let i = 0; i + lag < n; i++) sum += onset[i]! * onset[i + lag]!;
-    // Preferencia suave por andamentos entre 70 e 150 BPM (Ellis, 2007).
     const bpm = (60 * fps) / lag;
     const weight = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 110) / 0.9, 2));
     scores[lag] = (sum / (n - lag)) * weight;
     if (scores[lag]! > scores[best]!) best = lag;
   }
 
-  // Refina o lag por interpolacao parabolica: da BPM com casa decimal.
   const y0 = scores[best - 1] ?? scores[best]!;
   const y1 = scores[best]!;
   const y2 = scores[best + 1] ?? scores[best]!;
@@ -101,22 +277,49 @@ export function analyzeTempo(buffer: AudioBuffer): TempoAnalysis {
   return { bpm, firstDownbeatAt, confidence, alternatives };
 }
 
-/** Recalcula so o primeiro downbeat, para quando o usuario corrige o BPM. */
+/** Recalcula só o primeiro downbeat, para quando o usuário corrige o BPM. */
 export function refineDownbeat(buffer: AudioBuffer, bpm: number): number {
   const { full, low } = onsetEnvelope(toMono(buffer));
   const fps = buffer.sampleRate / HOP;
   return findFirstDownbeat(full, low, (60 * fps) / bpm, fps);
 }
 
-/**
- * Fase do beat: entre as posicoes possiveis dentro de um periodo, a que
- * acumula mais energia de onset e o beat. Entre os 4 beats do compasso, o "1"
- * e o que tem mais GRAVE: o bumbo acentua o 1, a caixa (aguda) marca 2 e 4 —
- * olhar o envelope cheio escolheria a caixa. Vale para musica marcada; para
- * a balada sem bateria o usuario ajusta na tela.
- */
+// ---------------------------------------------------------------------------
+// Funções auxiliares (privadas)
+// ---------------------------------------------------------------------------
+
+/** Lag global por autocorrelação do envelope de onset. */
+function globalLag(onset: Float32Array, fps: number): number {
+  const minLag = Math.floor((60 / 200) * fps);
+  const maxLag = Math.ceil((60 / 55) * fps);
+  const n = onset.length;
+  let best = minLag;
+  let bestVal = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i + lag < n; i++) sum += onset[i]! * onset[i + lag]!;
+    const bpm = (60 * fps) / lag;
+    const w = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 110) / 0.9, 2));
+    const v = (sum / (n - lag)) * w;
+    if (v > bestVal) { bestVal = v; best = lag; }
+  }
+  return best;
+}
+
+/** Fase do downbeat com mais energia grave entre os grupos de 4 beats. */
+function bestDownbeatPhase(lowAtBeats: number[], beatsPerBar: number): number {
+  let bestPhase = 0;
+  let bestSum = -1;
+  for (let phase = 0; phase < beatsPerBar; phase++) {
+    let sum = 0;
+    for (let i = phase; i < lowAtBeats.length; i += beatsPerBar) sum += lowAtBeats[i]!;
+    if (sum > bestSum) { bestSum = sum; bestPhase = phase; }
+  }
+  return bestPhase;
+}
+
 function findFirstDownbeat(onset: Float32Array, low: Float32Array, lag: number, fps: number): number {
-  const window = Math.min(onset.length, Math.floor(fps * 40)); // 40 s bastam
+  const window = Math.min(onset.length, Math.floor(fps * 40));
   const period = Math.max(1, Math.round(lag));
   let bestPhase = 0;
   let bestSum = -1;
@@ -125,7 +328,6 @@ function findFirstDownbeat(onset: Float32Array, low: Float32Array, lag: number, 
     for (let i = phase; i < window; i += period) sum += onset[i]! + (onset[i + 1] ?? 0) * 0.5;
     if (sum > bestSum) { bestSum = sum; bestPhase = phase; }
   }
-  // Compasso: qual dos 4 beats a partir da fase soa como o "1" (no grave).
   let bestBar = 0;
   let bestBarSum = -1;
   for (let m = 0; m < 4; m++) {
@@ -136,23 +338,15 @@ function findFirstDownbeat(onset: Float32Array, low: Float32Array, lag: number, 
     if (sum > bestBarSum) { bestBarSum = sum; bestBar = m; }
   }
   const frame = bestPhase + bestBar * period;
-  // A energia do onset e medida no fim do quadro; o ataque esta um pouco antes.
   return Math.max(0, (frame * HOP - FRAME / 2) / (fps * HOP));
 }
 
-/**
- * Envelopes de onset: variacao positiva da energia entre quadros.
- *   full — grave + agudo (peso extra no agudo, onde caixa e chimbal vivem):
- *          e o que da o BPM e a fase do beat;
- *   low  — so o grave (bumbo, baixo): e o que diz onde esta o "1".
- */
 function onsetEnvelope(mono: Float32Array): { full: Float32Array; low: Float32Array } {
   const frames = Math.max(1, Math.floor((mono.length - FRAME) / HOP));
   const full = new Float32Array(frames);
   const lowEnv = new Float32Array(frames);
   let prevLow = 0;
   let prevHigh = 0;
-  // Passa-baixas de um polo (~150 Hz a 44.1k) para isolar o bumbo.
   let lp = 0;
   const a = 0.02;
   for (let f = 0; f < frames; f++) {
@@ -164,12 +358,12 @@ function onsetEnvelope(mono: Float32Array): { full: Float32Array; low: Float32Ar
       const v = mono[i]!;
       lp += a * (v - lp);
       low += lp * lp;
-      const d = v - last; // derivada ~ passa-altas de primeira ordem
+      const d = v - last;
       high += d * d;
       last = v;
     }
-    low = Math.log1p(low / FRAME * 4000);
-    high = Math.log1p(high / FRAME * 4000);
+    low = Math.log1p((low / FRAME) * 4000);
+    high = Math.log1p((high / FRAME) * 4000);
     full[f] = Math.max(0, low - prevLow) + 1.6 * Math.max(0, high - prevHigh);
     lowEnv[f] = Math.max(0, low - prevLow);
     prevLow = low;
@@ -178,7 +372,6 @@ function onsetEnvelope(mono: Float32Array): { full: Float32Array; low: Float32Ar
   return { full: detrend(full), low: detrend(lowEnv) };
 }
 
-/** Remove a media local: sem isso um crescendo longo parece um onset. */
 function detrend(env: Float32Array): Float32Array {
   const frames = env.length;
   const smooth = new Float32Array(frames);
@@ -205,7 +398,7 @@ function toMono(buffer: AudioBuffer): Float32Array {
   return out;
 }
 
-/** Titulo a partir do nome do arquivo: "03 - Rio (ao vivo).mp3" -> "Rio (ao vivo)". */
+/** Título a partir do nome do arquivo: "03 - Rio (ao vivo).mp3" → "Rio (ao vivo)". */
 export function titleFromFileName(name: string): string {
   return name
     .replace(/\.[a-z0-9]+$/i, '')

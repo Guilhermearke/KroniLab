@@ -1,0 +1,67 @@
+# KroniLab — Kroni Worship Model (6 stems)
+# Modelo futuro treinado com dataset próprio de música de louvor.
+# Este arquivo está preparado; o treinamento começa quando tivermos
+# ao menos 50 faixas autorizadas com stems separados.
+#
+# Diferença do kroni_base_4stem:
+#   - 6 stems: vocals, drums, bass, guitar, keys, other
+#   - Treinado sobre dataset de louvor (estilo, dinâmica, mixagem)
+#   - Fine-tune a partir do kroni_base_4stem_best.ckpt
+
+model_type: bs_roformer
+model:
+  dim: 512
+  depth: 12
+  heads: 8
+  dim_head: 64
+  attn_flash: true
+  ff_mult: 4
+  num_stems: 6          # vocals, drums, bass, guitar, keys, other
+  time_transformer_depth: 2
+  freq_transformer_depth: 2
+
+training:
+  instruments:
+    - vocals
+    - drums
+    - bass
+    - guitar
+    - keys
+    - other
+
+  target_instrument: null
+  num_channels: 2
+  sample_rate: 44100
+  chunk_size: 485100
+  min_seconds: 8.0
+  max_seconds: 12.0
+
+  # Ponto de partida: nosso modelo de 4 stems
+  # (o BS-RoFormer suporta mudança de num_stems com re-init da camada final)
+  start_check_point: models/kroni_base_4stem_best.ckpt
+
+  batch_size: 4
+  num_workers: 4
+  num_epochs: 500
+  lr: 1.0e-4              # LR menor para fine-tune
+  optimizer: adamw
+  patience: 20
+
+  augmentation:
+    enable_pitch_shift: false
+    enable_time_stretch: false
+    enable_loudness: true
+    min_loudness: -6
+    max_loudness: 6
+
+  results_path: models/checkpoints/kroni_worship_6stem
+  wandb_key: ""
+
+datasets:
+  kroni:
+    path: dataset/kroni
+    type: stem_folder
+    # Estrutura esperada:
+    # dataset/kroni/
+    #   001/mix.wav vocals.wav drums.wav bass.wav guitar.wav keys.wav other.wav
+    #   002/...

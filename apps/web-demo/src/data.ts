@@ -6,7 +6,7 @@
  * que toca — e o mesmo dado, entao a tela nunca mente sobre o audio.
  */
 import { buildBeatGrid } from '@kronilab/core';
-import type { BeatGrid, Section, SectionType, TransitionMode } from '@kronilab/core';
+import type { Beat, BeatGrid, Section, SectionType, TransitionMode } from '@kronilab/core';
 import type { ImportedAudio } from './importer.ts';
 import type { StoredSong } from './store.ts';
 
@@ -31,8 +31,13 @@ export const STEMS: StemMeta[] = [
 
 export const MIX_STEM: StemMeta = { key: 'mix', label: 'Mix', color: '#2F80ED' };
 
-/** Lanes/canais de uma musica: os 6 stems sintetizados ou o mix importado. */
+/** Lanes/canais de uma musica: os stems disponiveis ou mix. */
 export function stemsFor(song: DemoSong): StemMeta[] {
+  if (song.stems && Object.keys(song.stems).length > 0) {
+    // Se tem stems separados, exibe os que estao presentes.
+    const keys = Object.keys(song.stems) as StemKey[];
+    return STEMS.filter((s) => keys.includes(s.key));
+  }
   return song.audio ? [MIX_STEM] : STEMS;
 }
 
@@ -67,8 +72,10 @@ export interface DemoSong {
   /** O que acontece quando esta musica acaba (configuracao do culto). */
   transition: TransitionMode;
   padEnabled: boolean;
-  /** Presente quando a musica veio de um arquivo: a gravacao real. */
+  /** Presente quando a musica veio de um arquivo de Mix (gravação real). */
   audio?: ImportedAudio;
+  /** Presente quando a musica veio de stems importados separadamente. */
+  stems?: Record<string, ImportedAudio>;
   /** Origem no IndexedDB, para editar/apagar. */
   storedId?: string;
 }
@@ -172,7 +179,6 @@ export function chordAtBar(section: DemoSection, bar: number): Chord {
   return section.chords[offset % section.chords.length]!;
 }
 
-/** Frequencia de uma nota MIDI. */
 export function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
@@ -193,24 +199,45 @@ export const SECTION_TYPES: { type: SectionType; label: string }[] = [
   { type: 'Outro', label: 'Final' },
 ];
 
-/** Quantos compassos inteiros cabem no audio a partir do primeiro downbeat. */
 export function barsInAudio(durationSec: number, bpm: number, firstDownbeatAt: number, beatsPerBar = 4): number {
   const secPerBar = (60 / bpm) * beatsPerBar;
   return Math.max(1, Math.floor((durationSec - firstDownbeatAt) / secPerBar));
 }
 
-/** Monta uma DemoSong a partir do que esta no IndexedDB + o audio decodificado. */
-export function songFromStored(stored: StoredSong, audio: ImportedAudio): DemoSong {
-  const durationSec = audio.buffer.duration;
+/** Monta uma DemoSong a partir do IndexedDB + áudio(s) decodificado(s). */
+export function songFromStored(
+  stored: StoredSong,
+  audio?: ImportedAudio,
+  stems?: Record<string, ImportedAudio>
+): DemoSong {
+  // A duração vem do primeiro áudio disponível
+  const durationSec = audio?.buffer.duration ?? Object.values(stems || {})[0]?.buffer.duration ?? 0;
   const totalBars = barsInAudio(durationSec, stored.bpm, stored.firstDownbeatAt, stored.beatsPerBar);
-  const grid = buildBeatGrid({
-    tempoMap: { segments: [{ startTime: 0, bpm: stored.bpm }] },
-    duration: durationSec + 4,
-    timeSignature: { beatsPerBar: stored.beatsPerBar, beatUnit: 4 },
-    firstDownbeatAt: stored.firstDownbeatAt,
-  });
+  
+  let grid: BeatGrid;
+  if (stored.beats && stored.beats.length > 0) {
+    // Grade variável
+    const beatsObj: Beat[] = stored.beats.map((t, i) => {
+      // Reconstroi os beats — assumindo 4/4 e que stored.beats sao sequenciais
+      const bar = Math.floor(i / 4) + 1;
+      const beatInBar = (i % 4) + 1;
+      return { index: i, bar, beat: beatInBar, timestamp: t, downbeat: beatInBar === 1 };
+    });
+    grid = {
+      timeSignature: { beatsPerBar: stored.beatsPerBar, beatUnit: 4 },
+      beats: beatsObj,
+      duration: durationSec + 4,
+    };
+  } else {
+    // Grade fixa
+    grid = buildBeatGrid({
+      tempoMap: { segments: [{ startTime: 0, bpm: stored.bpm }] },
+      duration: durationSec + 4,
+      timeSignature: { beatsPerBar: stored.beatsPerBar, beatUnit: 4 },
+      firstDownbeatAt: stored.firstDownbeatAt,
+    });
+  }
 
-  // Secoes em compassos; a ultima absorve o que sobrar para cobrir a musica.
   let bar = 1;
   const sections: DemoSection[] = stored.sections.map((p, i, all) => {
     const isLast = i === all.length - 1;
@@ -227,7 +254,7 @@ export function songFromStored(stored: StoredSong, audio: ImportedAudio): DemoSo
     id: stored.id, title: stored.title, artist: stored.artist,
     originalKey: stored.key, selectedKey: null, bpm: stored.bpm,
     beatsPerBar: stored.beatsPerBar, countInBars: 2, grid, sections, durationSec,
-    transition: 'stop', padEnabled: true, audio, storedId: stored.id,
+    transition: 'stop', padEnabled: true, audio, stems, storedId: stored.id,
   };
 }
 
