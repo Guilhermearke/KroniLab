@@ -1,62 +1,116 @@
+/**
+ * Verificacao funcional da demo num Chromium de verdade.
+ *
+ * Checa o comportamento que importa, nao a aparencia: que tocar uma secao
+ * ENFILEIRA em vez de pular, que a waveform vem das notas reais, que o mixer
+ * responde, e que o layout de tablet troca para faders verticais.
+ *
+ *   npx serve apps/web-demo/dist -p 8099
+ *   node apps/web-demo/verify.mjs
+ */
 import { chromium } from 'playwright-core';
 
+const URL = process.env.DEMO_URL ?? 'http://localhost:8099/';
+const CHROME = process.env.CHROME_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--autoplay-policy=no-user-gesture-required', '--mute-audio'],
+  executablePath: CHROME,
+  // Sem --autoplay-policy: o teste tem que enxergar a mesma politica de
+  // autoplay que um navegador real aplica. Com a flag, uma tela que so monta
+  // apos gesto do usuario passaria despercebida.
+  args: ['--mute-audio'],
 });
-const page = await browser.newPage({ viewport: { width: 430, height: 932 } });
-const errors = [];
-page.on('pageerror', (e) => errors.push(String(e)));
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
-await page.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
+async function open(width, height) {
+  const page = await browser.newPage({ viewport: { width, height } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto(URL, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(400);
+  return { page, errors };
+}
 
-const title = await page.textContent('#song-title');
-const sections = await page.locator('.section').count();
-console.log(`1. Carregou: "${title}" com ${sections} secoes`);
+// ------------------------------------------------------------------ celular
+const { page, errors } = await open(430, 932);
+// A tela precisa estar inteira ANTES de qualquer toque.
+const beforeGesture = await page.evaluate(() => ({
+  lanes: document.querySelectorAll('.lane').length,
+  chords: document.querySelectorAll('.tl-chord').length,
+}));
+console.log(`0. Sem nenhum toque: ${beforeGesture.lanes} lanes, ${beforeGesture.chords} cifras ${beforeGesture.lanes > 0 ? 'OK' : 'FALHOU (tela em branco)'}`);
+console.log(`1. Topo: "${(await page.textContent('#song-title')).trim()}" | ${await page.textContent('#meta-key')} ${await page.textContent('#meta-bpm')} BPM ${await page.textContent('#meta-dur')}`);
+console.log(`2. Setlist ${await page.locator('.sl-card').count()} | lanes ${await page.locator('.lane').count()} | cifras ${await page.locator('.tl-chord').count()} | marcadores ${await page.locator('.marker').count()}`);
 
-await page.click('#play');
-await page.waitForTimeout(1200);
-const bar1 = await page.textContent('#bar');
-await page.waitForTimeout(1200);
-const bar2 = await page.textContent('#bar');
-console.log(`2. Playhead andando: ${bar1} -> ${bar2} ${bar1 !== bar2 ? 'OK' : 'FALHOU'}`);
+const drawn = await page.evaluate(() => [...document.querySelectorAll('.lane')]
+  .map((l) => ({ stem: l.dataset.stem, c: l.querySelector('canvas') }))
+  .filter((x) => x.c)
+  .map(({ stem, c }) => {
+    const d = c.getContext('2d').getImageData(0, 0, Math.min(c.width, 900), c.height).data;
+    let on = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 10) on++;
+    return `${stem}:${on > 500 ? 'ok' : 'VAZIO'}`;
+  }).join(' '));
+console.log(`3. Waveforms ${drawn}`);
 
-// Salta para o Refrao (indice 3) e confirma que ENFILEIRA antes de executar
-await page.locator('.section').nth(3).click();
-await page.waitForTimeout(120);
-const queuedClass = await page.locator('.section').nth(3).getAttribute('class');
-const queuedLog = await page.textContent('.log-line');
-console.log(`3. Enfileirou (nao pulou): ${queuedClass.includes('is-queued') ? 'OK' : 'FALHOU'} | log: ${queuedLog.replace(/\s+/g,' ').trim().slice(11, 80)}`);
-const currentDuringQueue = await page.textContent('#current');
-console.log(`   secao atual ainda e "${currentDuringQueue}" durante a fila`);
+await page.click('#tr-play');
+await page.waitForTimeout(1500);
+const t1 = await page.textContent('#tr-current');
+await page.waitForTimeout(1500);
+console.log(`4. Transporte ${t1} -> ${await page.textContent('#tr-current')}`);
 
-// Espera a execucao no compasso
-await page.waitForFunction(() => document.querySelector('#log').textContent.includes('Salto confirmado'), { timeout: 15000 });
-const doneLog = await page.textContent('.log-done');
-await page.waitForTimeout(400); // deixa o playhead cruzar o ponto agendado
-const afterJump = await page.textContent('#current');
-console.log(`4. ${doneLog.replace(/\s+/g,' ').trim().slice(11, 70)}`);
-console.log(`   secao atual apos cruzar o ponto: "${afterJump}" ${afterJump === 'REFRAO' ? 'OK' : 'INESPERADO'}`);
-
-// Nudge
-await page.click('#nudge-up');
-await page.waitForTimeout(200);
-const rate = await page.textContent('#rate');
-const nudgeLog = await page.textContent('.log-line');
-console.log(`5. Nudge: taxa "${rate}" | ${nudgeLog.replace(/\s+/g,' ').trim().slice(11, 70)}`);
-
-// Tap tempo: 4 toques a 500ms = 120 BPM
-for (let i = 0; i < 4; i++) { await page.click('#tap'); await page.waitForTimeout(500); }
-const tapLabel = await page.textContent('#tap');
-console.log(`6. Tap tempo: "${tapLabel}"`);
-
-// Loop por pressao longa
-await page.locator('.section').nth(3).click({ delay: 700 });
+await page.click('#view-toggle');
+await page.waitForTimeout(250);
+console.log(`5. Mixer ${await page.locator('.mx-row').count()} canais, ${await page.locator('.mx-knob').count()} knobs`);
+await page.locator('.mx-row').nth(2).locator('[data-act="solo"]').click();
 await page.waitForTimeout(150);
-const loopClass = await page.locator('.section').nth(3).getAttribute('class');
-console.log(`7. Loop (segurar): ${loopClass.includes('is-loop') ? 'OK' : 'FALHOU'}`);
+console.log(`   solo apaga ${await page.locator('.mx-row.is-dimmed').count()} canais`);
+await page.screenshot({ path: '/tmp/phone-mixer.png' });
+await page.locator('.mx-row').nth(2).locator('[data-act="solo"]').click();
+await page.click('#view-toggle');
+await page.waitForTimeout(250);
+await page.screenshot({ path: '/tmp/phone-studio.png' });
 
-await page.screenshot({ path: '/tmp/demo.png', fullPage: false });
-console.log(`\nerros de console: ${errors.length ? errors.join(' | ') : 'nenhum'}`);
+await page.click('#live-btn');
+await page.waitForTimeout(250);
+await page.locator('.live-section').nth(3).click();
+await page.waitForTimeout(150);
+const queued = await page.locator('.live-section').nth(3).getAttribute('class');
+console.log(`6. Live enfileirou sem pular: ${queued.includes('is-queued') ? 'OK' : 'FALHOU'} | atual segue "${await page.textContent('#live-current')}"`);
+await page.waitForFunction(() => document.querySelector('#log').textContent.includes('Salto confirmado'), { timeout: 25000 });
+await page.waitForTimeout(400);
+console.log(`7. Apos o salto: "${await page.textContent('#live-current')}"`);
+await page.click('#lv-nudge-up');
+await page.waitForTimeout(150);
+console.log(`8. Nudge: "${await page.textContent('#live-rate')}"`);
+await page.screenshot({ path: '/tmp/phone-live.png' });
+console.log(`erros (celular): ${errors.length ? errors.join(' | ') : 'nenhum'}`);
+
+// ------------------------------------------------------------------- tablet
+const tablet = await open(1194, 834);
+await tablet.page.click('#view-toggle');
+await tablet.page.waitForTimeout(350);
+// Geometria, nao implementacao: o fader precisa ser mais alto que largo E
+// caber dentro da coluna do canal — foi exatamente isso que a rotacao quebrou.
+const layout = await tablet.page.evaluate(() => {
+  const row = document.querySelector('.mx-row').getBoundingClientRect();
+  const fader = document.querySelector('.mx-fader').getBoundingClientRect();
+  const rows = [...document.querySelectorAll('.mx-row')].map((r) => r.getBoundingClientRect());
+  const overlap = rows.some((a, i) => rows.slice(i + 1).some((b) => a.right > b.left + 1 && a.left < b.right - 1));
+  return {
+    w: Math.round(row.width), h: Math.round(row.height),
+    faderW: Math.round(fader.width), faderH: Math.round(fader.height),
+    inside: fader.left >= row.left - 1 && fader.right <= row.right + 1,
+    overlap,
+  };
+});
+console.log(`9. Tablet: canal ${layout.w}x${layout.h}px | fader ${layout.faderW}x${layout.faderH} ` +
+  `vertical ${layout.faderH > layout.faderW ? 'OK' : 'FALHOU'} | dentro da coluna ${layout.inside ? 'OK' : 'FALHOU'} | ` +
+  `sobreposicao entre canais ${layout.overlap ? 'SIM' : 'nao'}`);
+await tablet.page.screenshot({ path: '/tmp/tablet-mixer.png' });
+await tablet.page.click('#view-toggle');
+await tablet.page.waitForTimeout(350);
+await tablet.page.screenshot({ path: '/tmp/tablet-studio.png' });
+console.log(`erros (tablet): ${tablet.errors.length ? tablet.errors.join(' | ') : 'nenhum'}`);
+
 await browser.close();

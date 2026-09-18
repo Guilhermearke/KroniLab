@@ -1,20 +1,31 @@
 /**
- * Engine de audio da demo (Web Audio).
+ * Engine multitrack da demo (Web Audio).
  *
- * Nao ha stems aqui: a VS e SINTETIZADA — click, baixo por secao e guia falada.
- * O que importa e que o AGENDAMENTO e o mesmo do produto: um relogio mestre,
- * lookahead fixo, e os saltos entregues pelo @kronilab/core.
+ *   relogio (AudioContext) -> scheduler com lookahead
+ *        -> canal por stem (ganho + pan + mute/solo) -> master -> saida
  *
- *   relogio (AudioContext) -> scheduler com lookahead -> osciladores -> saida
+ * Um timer de JS nunca dispara uma nota: ele so AGENDA notas no futuro sobre o
+ * relogio de audio. E por isso que o click nao treme enquanto a UI redesenha.
  *
- * Um timer de JS nunca dispara uma nota: ele so AGENDA notas no futuro. E por
- * isso que o click nao treme mesmo com a aba ocupada renderizando a UI.
+ * A VS e sintetizada — nao ha gravacao envolvida —, mas o AGENDAMENTO e o mesmo
+ * do produto: um relogio mestre e os saltos entregues pelo @kronilab/core.
  */
-import { beatIndexAtTime, timeOfBeatIndex } from '@kronilab/core';
-import type { BeatGrid } from '@kronilab/core';
+import { beatIndexAtTime } from '@kronilab/core';
+import type { Arrangement, Note } from './arrangement.ts';
+import type { StemKey } from './data.ts';
 
 const LOOKAHEAD_SEC = 0.12;
 const TICK_MS = 25;
+
+interface Channel {
+  gain: GainNode;
+  pan: StereoPannerNode;
+  volume: number;
+  muted: boolean;
+  soloed: boolean;
+  /** Proxima nota ainda nao agendada. */
+  cursor: number;
+}
 
 export interface ScheduledJump {
   executeAt: number;
@@ -24,68 +35,73 @@ export interface ScheduledJump {
 export class DemoEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private clickBus: GainNode | null = null;
-  private padBus: GainNode | null = null;
+  private channels = new Map<StemKey, Channel>();
+  private arrangement: Arrangement | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
 
-  private grid: BeatGrid | null = null;
   private timer: number | null = null;
-
-  /** Ancora do relogio: converte tempo-da-musica <-> tempo-do-AudioContext. */
   private anchorCtx = 0;
   private anchorPos = 0;
   private rate = 1;
   private rampTimer: number | null = null;
 
-  private nextBeatIndex = 0;
   private jump: ScheduledJump | null = null;
-  private padRoot = 220;
   private pendingCue: { at: number; text: string } | null = null;
 
+  private masterVolume = 0.85;
+  private masterMuted = false;
+
   playing = false;
-  clickOn = true;
-  padOn = true;
   guideOn = true;
-  /** Recebe o destino do salto: no instante da confirmacao o playhead ainda
-   *  nao cruzou o ponto, entao ler a posicao daria a secao ANTERIOR. */
+  duration = 0;
   onJumpExecuted: ((seekTo: number) => void) | null = null;
 
-  async init(): Promise<void> {
+  /**
+   * Cria o grafo de audio. NAO chama resume(): sem gesto do usuario o navegador
+   * deixa a promessa de resume() pendente para sempre, e qualquer `await` aqui
+   * congelaria a montagem da tela. O contexto nasce suspenso e so o play(),
+   * que vem de um toque, o acorda.
+   */
+  init(): void {
     if (this.ctx) return;
     const ctx = new AudioContext();
-    await ctx.resume();
     const master = ctx.createGain();
-    master.gain.value = 0.9;
+    master.gain.value = this.masterVolume;
     master.connect(ctx.destination);
-
-    const clickBus = ctx.createGain();
-    clickBus.gain.value = 0.5;
-    clickBus.connect(master);
-
-    const padBus = ctx.createGain();
-    padBus.gain.value = 0.22;
-    padBus.connect(master);
-
     this.ctx = ctx;
     this.master = master;
-    this.clickBus = clickBus;
-    this.padBus = padBus;
+    this.noiseBuffer = makeNoise(ctx);
   }
 
-  load(grid: BeatGrid, rootHz: number): void {
-    this.grid = grid;
-    this.padRoot = rootHz;
-    this.anchorPos = 0;
-    this.nextBeatIndex = 0;
-    this.jump = null;
+  load(arrangement: Arrangement, duration: number): void {
+    this.init();
+    this.arrangement = arrangement;
+    this.duration = duration;
+    const ctx = this.ctx!;
+
+    for (const key of Object.keys(arrangement) as StemKey[]) {
+      if (key === 'guide') continue; // guia e falada, nao tem canal de sintese
+      let channel = this.channels.get(key);
+      if (!channel) {
+        const gain = ctx.createGain();
+        const pan = ctx.createStereoPanner();
+        gain.connect(pan).connect(this.master!);
+        channel = { gain, pan, volume: 1, muted: false, soloed: false, cursor: 0 };
+        this.channels.set(key, channel);
+      }
+      channel.cursor = 0;
+    }
+    this.applyGains();
+    this.seek(0);
   }
 
-  /** Posicao atual na linha do tempo da musica. */
+  // --- relogio -------------------------------------------------------------
+
   position(): number {
     if (!this.ctx || !this.playing) return this.anchorPos;
     return this.anchorPos + (this.ctx.currentTime - this.anchorCtx) * this.rate;
   }
 
-  /** Converte tempo-da-musica em tempo-do-AudioContext. */
   private ctxTimeOf(songTime: number): number {
     return this.anchorCtx + (songTime - this.anchorPos) / this.rate;
   }
@@ -97,11 +113,12 @@ export class DemoEngine {
   }
 
   async play(): Promise<void> {
-    await this.init();
-    if (!this.ctx || this.playing) return;
-    await this.ctx.resume();
+    this.init();
+    if (this.playing) return;
+    // Aqui sim: play() vem de um toque, entao o resume e permitido.
+    await this.ctx!.resume();
     this.reanchor(this.anchorPos);
-    this.nextBeatIndex = Math.max(0, beatIndexAtTime(this.grid!, this.anchorPos) + 1);
+    this.resetCursors(this.anchorPos);
     this.playing = true;
     this.timer = window.setInterval(() => this.tick(), TICK_MS);
   }
@@ -115,10 +132,80 @@ export class DemoEngine {
   }
 
   seek(songTime: number): void {
-    this.anchorPos = songTime;
+    this.anchorPos = Math.max(0, songTime);
     if (this.ctx) this.anchorCtx = this.ctx.currentTime;
-    if (this.grid) this.nextBeatIndex = Math.max(0, beatIndexAtTime(this.grid, songTime) + 1);
+    this.resetCursors(this.anchorPos);
   }
+
+  private resetCursors(from: number): void {
+    if (!this.arrangement) return;
+    for (const [key, channel] of this.channels) {
+      const notes = this.arrangement[key];
+      let i = 0;
+      while (i < notes.length && notes[i]!.t < from) i++;
+      channel.cursor = i;
+    }
+  }
+
+  // --- mixer ---------------------------------------------------------------
+
+  setVolume(stem: StemKey, volume: number): void {
+    const channel = this.channels.get(stem);
+    if (!channel) return;
+    channel.volume = volume;
+    this.applyGains();
+  }
+
+  setPan(stem: StemKey, pan: number): void {
+    const channel = this.channels.get(stem);
+    if (!channel || !this.ctx) return;
+    channel.pan.pan.setTargetAtTime(pan, this.ctx.currentTime, 0.01);
+  }
+
+  toggleMute(stem: StemKey): boolean {
+    const channel = this.channels.get(stem);
+    if (!channel) return false;
+    channel.muted = !channel.muted;
+    this.applyGains();
+    return channel.muted;
+  }
+
+  toggleSolo(stem: StemKey): boolean {
+    const channel = this.channels.get(stem);
+    if (!channel) return false;
+    channel.soloed = !channel.soloed;
+    this.applyGains();
+    return channel.soloed;
+  }
+
+  setMasterVolume(volume: number): void {
+    if (!this.ctx || !this.master) return;
+    this.masterVolume = volume;
+    this.master.gain.setTargetAtTime(this.masterMuted ? 0 : volume, this.ctx.currentTime, 0.015);
+  }
+
+  toggleMasterMute(): boolean {
+    this.masterMuted = !this.masterMuted;
+    this.setMasterVolume(this.masterVolume);
+    return this.masterMuted;
+  }
+
+  state(stem: StemKey): { volume: number; muted: boolean; soloed: boolean } {
+    const c = this.channels.get(stem);
+    return { volume: c?.volume ?? 1, muted: c?.muted ?? false, soloed: c?.soloed ?? false };
+  }
+
+  /** Solo em qualquer canal silencia os demais — regra de mesa, nao de player. */
+  private applyGains(): void {
+    if (!this.ctx) return;
+    const anySolo = [...this.channels.values()].some((c) => c.soloed);
+    for (const channel of this.channels.values()) {
+      const audible = !channel.muted && (!anySolo || channel.soloed);
+      channel.gain.gain.setTargetAtTime(audible ? channel.volume : 0, this.ctx.currentTime, 0.015);
+    }
+  }
+
+  // --- transporte ----------------------------------------------------------
 
   scheduleJump(jump: ScheduledJump): void {
     this.jump = jump;
@@ -128,11 +215,10 @@ export class DemoEngine {
     this.jump = null;
   }
 
-  /** Rampa temporaria de andamento (nudge / tap). Volta sozinha ao fim. */
   applyTempoRamp(rate: number, durationSec: number): void {
     if (!this.ctx) return;
-    // Re-ancora ANTES de trocar a taxa: sem isso, a posicao ja percorrida
-    // seria recalculada com a taxa nova e o playhead daria um pulo.
+    // Re-ancora ANTES de trocar a taxa: sem isso o trecho ja percorrido seria
+    // recalculado com a taxa nova e o playhead daria um pulo.
     this.reanchor(this.position());
     this.rate = rate;
     if (this.rampTimer) window.clearTimeout(this.rampTimer);
@@ -147,106 +233,130 @@ export class DemoEngine {
     return this.rate;
   }
 
-  setPadRoot(hz: number): void {
-    this.padRoot = hz;
-  }
-
-  /** Guia falada: anunciada uma vez, um compasso antes da secao. */
   announce(text: string, atSongTime: number): void {
     this.pendingCue = { at: atSongTime, text };
   }
 
+  // --- scheduler -----------------------------------------------------------
+
   private tick(): void {
-    if (!this.ctx || !this.grid) return;
+    if (!this.ctx || !this.arrangement) return;
     const now = this.position();
     const horizon = now + LOOKAHEAD_SEC;
 
-    // 1) Salto: para de agendar no ponto de execucao e re-ancora no destino.
+    // 1) Salto confirmado: re-ancora no destino e recomeca os cursores.
     if (this.jump && this.jump.executeAt <= horizon) {
       const jumpCtxTime = this.ctxTimeOf(this.jump.executeAt);
       const seekTo = this.jump.seekTo;
       this.jump = null;
       this.reanchor(seekTo, jumpCtxTime);
-      this.nextBeatIndex = Math.max(0, beatIndexAtTime(this.grid, seekTo));
+      this.resetCursors(seekTo);
       this.onJumpExecuted?.(seekTo);
       return;
     }
 
-    // 2) Agenda os beats que caem na janela.
-    while (this.nextBeatIndex < this.grid.beats.length) {
-      const beat = this.grid.beats[this.nextBeatIndex]!;
-      if (beat.timestamp > horizon) break;
-      const when = this.ctxTimeOf(beat.timestamp);
-      if (when >= this.ctx.currentTime) {
-        if (this.clickOn) this.click(when, beat.downbeat);
-        if (this.padOn && beat.downbeat && beat.bar % 2 === 1) this.pad(when);
+    // 2) Agenda as notas de cada canal que caem na janela.
+    for (const [key, channel] of this.channels) {
+      const notes = this.arrangement[key];
+      while (channel.cursor < notes.length) {
+        const note = notes[channel.cursor]!;
+        if (note.t > horizon) break;
+        const when = this.ctxTimeOf(note.t);
+        if (when >= this.ctx.currentTime) this.playNote(note, when, channel);
+        channel.cursor++;
       }
-      this.nextBeatIndex++;
     }
 
-    // 3) Guia: fala quando o ponto chega (SpeechSynthesis nao aceita agendamento).
+    // 3) Guia falada (SpeechSynthesis nao aceita agendamento).
     if (this.pendingCue && now >= this.pendingCue.at) {
       const { text } = this.pendingCue;
       this.pendingCue = null;
-      if (this.guideOn) this.speak(text);
+      if (this.guideOn) speak(text);
     }
+
+    if (this.duration > 0 && now > this.duration) this.pause();
   }
 
-  private click(when: number, accent: boolean): void {
+  private playNote(note: Note, when: number, channel: Channel): void {
     const ctx = this.ctx!;
+    const env = ctx.createGain();
+    env.connect(channel.gain);
+
+    if (note.timbre === 'hat' || note.timbre === 'snare' || note.timbre === 'shaker') {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = note.timbre === 'snare' ? 'bandpass' : 'highpass';
+      filter.frequency.value = note.freq;
+      filter.Q.value = note.timbre === 'snare' ? 1.2 : 0.7;
+      src.connect(filter).connect(env);
+      env.gain.setValueAtTime(note.amp, when);
+      env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+      src.start(when);
+      src.stop(when + note.dur + 0.02);
+      return;
+    }
+
     const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = accent ? 1800 : 1200;
-    gain.gain.setValueAtTime(accent ? 0.9 : 0.45, when);
-    gain.gain.exponentialRampToValueAtTime(0.001, when + 0.045);
-    osc.connect(gain).connect(this.clickBus!);
+    osc.frequency.setValueAtTime(note.freq, when);
+
+    switch (note.timbre) {
+      case 'click':
+        osc.type = 'square';
+        env.gain.setValueAtTime(note.amp * 0.5, when);
+        env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+        break;
+      case 'kick':
+        osc.type = 'sine';
+        // Queda de altura: e o que faz soar como bumbo e nao como bipe.
+        osc.frequency.exponentialRampToValueAtTime(35, when + note.dur);
+        env.gain.setValueAtTime(note.amp, when);
+        env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+        break;
+      case 'sub':
+        osc.type = 'triangle';
+        env.gain.setValueAtTime(0.0001, when);
+        env.gain.exponentialRampToValueAtTime(note.amp, when + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+        break;
+      case 'pluck':
+        osc.type = 'sawtooth';
+        env.gain.setValueAtTime(0.0001, when);
+        env.gain.exponentialRampToValueAtTime(note.amp, when + 0.008);
+        env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+        break;
+      case 'pad':
+        osc.type = 'triangle';
+        env.gain.setValueAtTime(0.0001, when);
+        env.gain.exponentialRampToValueAtTime(note.amp, when + 0.25);
+        env.gain.setValueAtTime(note.amp, when + note.dur * 0.7);
+        env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+        break;
+      default: // lead
+        osc.type = 'sine';
+        env.gain.setValueAtTime(0.0001, when);
+        env.gain.exponentialRampToValueAtTime(note.amp, when + 0.06);
+        env.gain.exponentialRampToValueAtTime(0.0001, when + note.dur);
+    }
+
+    osc.connect(env);
     osc.start(when);
-    osc.stop(when + 0.06);
-  }
-
-  /** Nota de baixo da secao: e o que faz o salto ser ouvido, nao so visto. */
-  private pad(when: number): void {
-    const ctx = this.ctx!;
-    const osc = ctx.createOscillator();
-    const sub = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 900;
-
-    osc.type = 'triangle';
-    osc.frequency.value = this.padRoot;
-    sub.type = 'sine';
-    sub.frequency.value = this.padRoot / 2;
-
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(0.5, when + 0.08);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 1.6);
-
-    osc.connect(filter);
-    sub.connect(filter);
-    filter.connect(gain).connect(this.padBus!);
-    osc.start(when); sub.start(when);
-    osc.stop(when + 1.7); sub.stop(when + 1.7);
-  }
-
-  private speak(text: string): void {
-    if (typeof speechSynthesis === 'undefined') return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.rate = 1.15;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(utterance);
+    osc.stop(when + note.dur + 0.05);
   }
 }
 
-/** Frequencia da tonica, para o baixo soar no tom do culto. */
-export function keyToHz(key: string, degree = 0): number {
-  const names = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
-  const sharps: Record<string, string> = { 'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb' };
-  const normalized = sharps[key] ?? key;
-  const index = names.indexOf(normalized);
-  const semitone = (index < 0 ? 0 : index) + degree;
-  // A2 = 110 Hz como referencia grave.
-  return 110 * Math.pow(2, semitone / 12);
+function makeNoise(ctx: AudioContext): AudioBuffer {
+  const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return buffer;
+}
+
+function speak(text: string): void {
+  if (typeof speechSynthesis === 'undefined') return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'pt-BR';
+  utterance.rate = 1.15;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utterance);
 }
