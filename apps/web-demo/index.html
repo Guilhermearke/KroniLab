@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KroniLab — Live Mode</title>
+<meta name="theme-color" content="#07090F">
+<meta name="description" content="Demo do Live Mode do KroniLab: saltos quantizados, loop, nudge e tap tempo com a mesma logica do app.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+<style>
+  :root {
+    --bg: #07090F; --surface: #101420; --line: #232B3D;
+    --text: #F2F5FC; --muted: #8E9AB5;
+    --accent: #F0A81F; --accent-soft: #3A2B0C; --queued: #5B8CFF;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 32px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  h1 { font-size: clamp(26px, 7vw, 40px); font-weight: 800; letter-spacing: -1px; margin: 0; }
+  .meta { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .meta b { color: var(--accent); }
+  .bar-counter {
+    font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 800;
+    color: var(--accent); min-width: 88px; text-align: right;
+  }
+  .rate { display: block; font-size: 12px; color: var(--queued); font-weight: 700; }
+  .note {
+    margin: 12px 0; padding: 10px 12px; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--line);
+    color: var(--muted); font-size: 13px; line-height: 1.5;
+  }
+  .note b { color: var(--text); }
+  .sections { display: grid; gap: 8px; margin: 16px 0; }
+  .section {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    width: 100%; padding: 16px 20px; border-radius: 14px; cursor: pointer;
+    background: transparent; border: 2px solid var(--line); color: var(--text);
+    font: inherit; text-align: left; transition: border-color .12s, background .12s;
+    user-select: none;
+  }
+  .section:hover { border-color: #33405c; }
+  .section-label { font-size: clamp(22px, 5.5vw, 34px); font-weight: 800; letter-spacing: -.5px; }
+  .section-meta { display: flex; align-items: center; gap: 8px; }
+  .section-bars { color: var(--muted); font-size: 12px; }
+  .badge {
+    display: none; font-size: 10px; font-weight: 800; letter-spacing: .8px;
+    padding: 3px 7px; border-radius: 999px; border: 1px solid currentColor;
+  }
+  .badge-queued { color: var(--queued); }
+  .badge-loop { color: var(--accent); }
+  .is-current { border-color: var(--accent); background: var(--accent-soft); }
+  .is-current .section-label { color: var(--accent); }
+  .is-queued { border-color: var(--queued); }
+  .is-queued .section-label { color: var(--queued); }
+  .is-queued .badge-queued { display: inline-block; }
+  .is-loop .badge-loop { display: inline-block; }
+  .state { display: flex; gap: 28px; padding: 12px 2px; }
+  .state span { display: block; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; color: var(--muted); }
+  .state strong { font-size: 20px; font-weight: 800; }
+  #current { color: var(--accent); }
+  #next { color: var(--queued); }
+  .controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .controls.secondary { grid-template-columns: repeat(3, 1fr); margin-top: 8px; }
+  button.ctl {
+    padding: 16px 8px; border-radius: 12px; cursor: pointer;
+    background: var(--surface); border: 2px solid var(--line); color: var(--text);
+    font: inherit; font-weight: 800; font-size: 14px; letter-spacing: .3px;
+  }
+  button.ctl:hover { border-color: #33405c; }
+  button.ctl:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  button.ctl.is-off { opacity: .4; }
+  .log {
+    margin-top: 16px; padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--line);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7;
+  }
+  .log-line { color: var(--muted); }
+  .log-time { color: #4a5570; margin-right: 6px; }
+  .log-queued { color: var(--queued); }
+  .log-done { color: var(--accent); }
+  .log b { color: var(--text); }
+  footer { margin-top: 20px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  kbd {
+    background: var(--surface); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: inherit;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="song-title">—</h1>
+      <div class="meta" id="song-meta"></div>
+    </div>
+    <div class="bar-counter">
+      <span id="bar">0.0</span>
+      <span class="rate" id="rate"></span>
+    </div>
+  </header>
+
+  <div class="note">
+    <b>Toque uma seção enquanto toca.</b> Ela não pula na hora — entra na fila (azul) e a troca
+    acontece no próximo compasso. Segure uma seção para ligar o <b>loop</b>. O áudio é sintetizado
+    no navegador: click, baixo por seção e guia falada em pt-BR.
+  </div>
+
+  <div class="sections" id="sections"></div>
+
+  <div class="state">
+    <div><span>ATUAL</span><strong id="current">—</strong></div>
+    <div><span>PRÓXIMO</span><strong id="next">—</strong></div>
+  </div>
+
+  <div class="controls">
+    <button class="ctl primary" id="play">PLAY</button>
+    <button class="ctl" id="nudge-down">NUDGE −</button>
+    <button class="ctl" id="nudge-up">NUDGE +</button>
+    <button class="ctl" id="tap">TAP</button>
+  </div>
+  <div class="controls secondary">
+    <button class="ctl" id="quantize">SALTO: COMPASSO</button>
+    <button class="ctl" id="cancel">CANCELAR FILA</button>
+    <button class="ctl" id="next-song">PRÓXIMA ▸</button>
+  </div>
+  <div class="controls secondary">
+    <button class="ctl" id="toggle-click">CLICK</button>
+    <button class="ctl" id="toggle-pad">BAIXO</button>
+    <button class="ctl" id="toggle-guide">GUIA</button>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <footer>
+    <p>Atalhos: <kbd>espaço</kbd> play/pause &nbsp; <kbd>1-9</kbd> seção &nbsp; <kbd>←</kbd> <kbd>→</kbd> nudge &nbsp; <kbd>t</kbd> tap</p>
+    <p>O log mostra a decisão antes do efeito: a seção é enfileirada e só então executada. Essa lógica é a mesma do app — <code>@kronilab/core</code>, coberta por 67 testes.</p>
+  </footer>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
