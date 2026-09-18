@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Levita",
+    "slug": "levita",
+    "scheme": "levita",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "plugins": ["expo-router", "expo-sqlite", "expo-av"],
+    "ios": {
+      "bundleIdentifier": "app.levita.mobile",
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "UIRequiresPersistentWiFi": false
+      }
+    },
+    "android": {
+      "package": "app.levita.mobile",
+      "permissions": ["FOREGROUND_SERVICE", "WAKE_LOCK"]
+    }
+  }
+}
