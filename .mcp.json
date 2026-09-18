@@ -1,0 +1,32 @@
+{
+  "//": "Conectores MCP do KroniLab. Abra o projeto no Claude Code e ele oferece conectar. As variaveis vem do .env — nenhuma chave fica escrita aqui.",
+  "mcpServers": {
+    "supabase": {
+      "//": "Banco, migrations e advisors do projeto. Precisa de SUPABASE_ACCESS_TOKEN (Account -> Access Tokens) e do ref do projeto.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--project-ref=${SUPABASE_PROJECT_REF}"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    },
+    "cloudflare-bindings": {
+      "//": "R2, Workers e KV. Servidor remoto da Cloudflare: a autenticacao abre no navegador, sem token colado em arquivo. Confirme a URL em developers.cloudflare.com/agents/model-context-protocol/ — a Cloudflare muda os endpoints de tempos em tempos.",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://bindings.mcp.cloudflare.com/sse"]
+    },
+    "cloudflare-observability": {
+      "//": "Logs e analytics do Pages e dos Workers. Mesma observacao sobre a URL.",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://observability.mcp.cloudflare.com/sse"]
+    },
+    "github": {
+      "//": "Repositorio, PRs e Actions. Servidor remoto oficial; a autenticacao e por OAuth no navegador.",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.githubcopilot.com/mcp/"]
+    }
+  }
+}
