@@ -22,6 +22,12 @@ nada sincroniza entre os aparelhos da equipe.
 3. Aplique o schema: **SQL Editor** → cole `supabase/migrations/0001_init.sql`
    → Run. São 25 tabelas, o gatilho de mudança de tom e o RLS por igreja.
 
+> **Estado (18/09/2026):** aplicado no projeto `kronilab-gif's Project`
+> (ref `dyymlikpcssccubfvpve`, us-east-1). Conferido no banco: 25 tabelas,
+> 25 com RLS, 28 políticas, 1 trigger. URL:
+> `https://dyymlikpcssccubfvpve.supabase.co`. Falta só colar a anon key no
+> `.env`.
+
 O `doctor` separa as duas coisas: *Supabase* diz se o projeto responde, *Schema*
 diz se as tabelas existem. Projeto de pé com banco vazio é o caso mais comum.
 
@@ -74,6 +80,33 @@ A raiz precisa ser a do repositório por causa dos workspaces: o build importa
 `packages/core`, que não existe dentro de `apps/web-demo`.
 
 Não é preciso token: o Pages faz build a cada push sozinho.
+
+> **Estado (18/09/2026):** projeto `kronilab` criado, ligado a
+> `Guilhermearke/KroniLab` (app do GitHub instalado só nesse repo), primeiro
+> deploy no ar em **https://kronilab.pages.dev**. Cada push na `main` publica.
+
+### Domínio próprio — kronilab.com.br
+
+O domínio está no registro.br (titular Guilherme Machado da Silva). Para o
+Pages atendê-lo, o DNS inteiro passa a viver na Cloudflare:
+
+1. Zona `kronilab.com.br` criada na conta Cloudflare (`Kronilab@gmail.com`).
+   Nameservers atribuídos: `cora.ns.cloudflare.com` e `elliot.ns.cloudflare.com`.
+2. Registros já criados na zona: `kronilab.com.br` e `www` → CNAME
+   `kronilab.pages.dev`, proxied.
+3. No **registro.br → Domínios → kronilab.com.br → Alterar servidores DNS**:
+   trocar `ns1/ns2.sinai.staydns.com` pelos dois da Cloudflare. O DNS antigo
+   estava vazio (sem A, MX ou TXT), então nada cai com a troca.
+4. Quando a zona ficar *Active* (minutos a algumas horas), em
+   **Pages → kronilab → Custom domains → Set up a custom domain** adicionar
+   `kronilab.com.br` e `www.kronilab.com.br`. O Pages recusa esse passo
+   enquanto a zona está *Pending*.
+
+> **Armadilha do painel:** o fluxo novo "Connect a domain" chama
+> `registrar/domains/batch_check` antes de criar a zona; para `.com.br` isso
+> devolve 422 e o botão *Continue* trava girando para sempre, sem erro na tela.
+> A zona foi criada pela API (`POST /api/v4/zones`) de dentro da sessão do
+> painel. Se precisar repetir, é esse o caminho — não o formulário.
 
 ---
 

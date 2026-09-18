@@ -363,6 +363,7 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
+alter table organizations enable row level security;
 alter table churches enable row level security;
 alter table church_members enable row level security;
 alter table ministries enable row level security;
@@ -388,6 +389,9 @@ alter table setlist_items enable row level security;
 alter table offline_manifests enable row level security;
 alter table notifications enable row level security;
 
+-- A organizacao e visivel para quem pertence a alguma igreja dela.
+create policy organizations_read on organizations for select
+  using (id in (select organization_id from churches where id in (select current_member_churches())));
 create policy church_read on churches for select using (id in (select current_member_churches()));
 create policy members_read on church_members for select using (church_id in (select current_member_churches()));
 create policy ministries_read on ministries for select using (church_id in (select current_member_churches()));
