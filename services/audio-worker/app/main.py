@@ -16,7 +16,7 @@ from .models import JobRequest, JobStatus, ProcessingState
 from .pipeline.fingerprint import sha256_file
 from .queue import MemoryQueue
 
-app = FastAPI(title="Levita Audio Worker", version="0.1.0")
+app = FastAPI(title="KroniLab Audio Worker", version="0.1.0")
 settings = get_settings()
 queue = MemoryQueue()
 _jobs: dict[str, JobStatus] = {}

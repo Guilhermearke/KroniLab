@@ -17,7 +17,7 @@
  * nativa; a de JS existe para desenvolver e para o modo estudo. Trocar uma pela
  * outra nao toca em nenhuma tela.
  */
-import type { QuantizeMode, StemId } from '@levita/core';
+import type { QuantizeMode, StemId } from '@kronilab/core';
 
 export interface SessionTrack {
   stem: StemId;

@@ -8,7 +8,7 @@
  * No palco, use a engine nativa (ver NativeAudioEngine.ts).
  */
 import { Audio } from 'expo-av';
-import type { StemId } from '@levita/core';
+import type { StemId } from '@kronilab/core';
 import type {
   AudioEngine, EngineListener, EngineState, LoadSessionOptions, ScheduledJump,
 } from './AudioEngine.ts';

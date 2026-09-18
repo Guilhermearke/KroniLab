@@ -9,8 +9,8 @@ import * as FileSystem from 'expo-file-system';
 import {
   buildManifest, downloadProgress, formatBytes, manifestBytes,
   missingAssets, offlineStatus,
-} from '@levita/core';
-import type { ChurchEvent, EventSongSettings, LocalManifest, OfflineStatus, Song } from '@levita/core';
+} from '@kronilab/core';
+import type { ChurchEvent, EventSongSettings, LocalManifest, OfflineStatus, Song } from '@kronilab/core';
 import { getDb, logEvent } from '../../data/db.ts';
 
 export interface DownloadApi {

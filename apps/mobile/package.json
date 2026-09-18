@@ -1,5 +1,5 @@
 {
-  "name": "@levita/mobile",
+  "name": "@kronilab/mobile",
   "version": "0.1.0",
   "main": "expo-router/entry",
   "scripts": {
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@gorhom/bottom-sheet": "^5.0.6",
-    "@levita/core": "*",
+    "@kronilab/core": "*",
     "@shopify/flash-list": "1.7.1",
     "@supabase/supabase-js": "^2.45.4",
     "expo": "~52.0.0",

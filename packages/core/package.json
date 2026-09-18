@@ -1,5 +1,5 @@
 {
-  "name": "@levita/core",
+  "name": "@kronilab/core",
   "version": "0.1.0",
   "description": "Dominio + logica musical compartilhada (beat grid, tempo map, secoes, saltos quantizados, nudge, tap tempo, mixer, offline, live check).",
   "type": "module",

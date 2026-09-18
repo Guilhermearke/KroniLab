@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "Levita",
-    "slug": "levita",
-    "scheme": "levita",
+    "name": "KroniLab",
+    "slug": "kronilab",
+    "scheme": "kronilab",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "plugins": ["expo-router", "expo-sqlite", "expo-av"],
     "ios": {
-      "bundleIdentifier": "app.levita.mobile",
+      "bundleIdentifier": "app.kronilab.mobile",
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": ["audio"],
@@ -17,7 +17,7 @@
       }
     },
     "android": {
-      "package": "app.levita.mobile",
+      "package": "app.kronilab.mobile",
       "permissions": ["FOREGROUND_SERVICE", "WAKE_LOCK"]
     }
   }

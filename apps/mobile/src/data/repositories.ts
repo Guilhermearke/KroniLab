@@ -4,7 +4,7 @@
  */
 import type {
   Beat, BeatGrid, ChurchEvent, EventSongSettings, Section, Song, StemId,
-} from '@levita/core';
+} from '@kronilab/core';
 import { getDb } from './db.ts';
 
 export async function listUpcomingEvents(churchId: string): Promise<ChurchEvent[]> {

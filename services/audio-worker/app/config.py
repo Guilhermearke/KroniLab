@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Storage (Cloudflare R2, API S3)
     r2_endpoint: str = ""
-    r2_bucket: str = "levita"
+    r2_bucket: str = "kronilab"
     r2_access_key: str = ""
     r2_secret_key: str = ""
 
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Fila
     redis_url: str = "redis://localhost:6379/0"
-    queue_name: str = "levita:audio-jobs"
+    queue_name: str = "kronilab:audio-jobs"
 
     # Separacao: 'demucs' (GPU), 'replicate' (API) ou 'mock' (dev/CI)
     separation_provider: str = "mock"
@@ -27,10 +27,10 @@ class Settings(BaseSettings):
     # A GPU nao fica ligada 24h: o worker sobe, drena a fila e morre.
     idle_shutdown_seconds: int = 300
 
-    work_dir: str = "/tmp/levita"
+    work_dir: str = "/tmp/kronilab"
 
     class Config:
-        env_prefix = "LEVITA_"
+        env_prefix = "KRONILAB_"
 
 
 @lru_cache

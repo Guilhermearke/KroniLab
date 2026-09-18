@@ -32,7 +32,7 @@ ProgressFn = Callable[[ProcessingState, float], None]
 class PipelineDeps:
     """Injetadas para o pipeline rodar em CI sem GPU, sem R2 e sem Supabase."""
     provider_name: str = "mock"
-    work_dir: Path = Path("/tmp/levita")
+    work_dir: Path = Path("/tmp/kronilab")
     find_existing_by_hash: Callable[[str, str], JobResult | None] = lambda church, sha: None
     upload: Callable[[Path, str], str] = lambda path, key: f"local://{key}"
     click_sound: str = "digital"

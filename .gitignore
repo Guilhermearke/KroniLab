@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+build/
+*.tsbuildinfo
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+.env
+.env.local
+*.db
+*.wav
+.DS_Store

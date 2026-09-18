@@ -10,7 +10,7 @@ Upload -> Normalizacao -> Hash -> Deduplicacao -> Separacao de stems
 
 ## Rodar sem GPU
 
-Todo o pipeline roda com `LEVITA_SEPARATION_PROVIDER=mock`, que copia o audio
+Todo o pipeline roda com `KRONILAB_SEPARATION_PROVIDER=mock`, que copia o audio
 original em cada stem. Serve para desenvolver o app inteiro (estudo, download,
 live) antes de existir uma GPU.
 

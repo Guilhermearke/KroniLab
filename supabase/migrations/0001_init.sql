@@ -1,5 +1,5 @@
 -- =============================================================================
--- Levita — schema inicial
+-- KroniLab — schema inicial
 --
 -- Principios:
 --  1. Toda linha pertence a uma igreja. RLS filtra por igreja, sempre.

@@ -1,5 +1,5 @@
 /**
- * Modelo de dominio do Levita.
+ * Modelo de dominio do KroniLab.
  *
  * Regra central do produto: a MUSICA e uma entidade completa e imutavel do
  * ponto de vista do culto (audio, stems, beat grid, tom original, secoes).

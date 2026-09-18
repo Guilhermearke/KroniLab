@@ -16,7 +16,7 @@ from .pipeline.run import PipelineDeps, run_pipeline
 from .queue import MemoryQueue, RedisQueue
 from .storage import LocalStorage, R2Storage
 
-log = logging.getLogger("levita.worker")
+log = logging.getLogger("kronilab.worker")
 
 
 def main() -> None:

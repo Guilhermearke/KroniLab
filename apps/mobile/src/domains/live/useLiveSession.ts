@@ -1,7 +1,7 @@
 /**
  * Controlador do Live Mode.
  *
- * Amarra o que ja foi provado no @levita/core (saltos quantizados, loop, nudge,
+ * Amarra o que ja foi provado no @kronilab/core (saltos quantizados, loop, nudge,
  * tap tempo) com a engine de audio. Nenhuma tela faz conta de tempo: a tela
  * mostra, este hook decide, a engine executa.
  */
@@ -10,8 +10,8 @@ import {
   TapTempo, bpmAtTime, dueAction, nextSection, planLoopWrap, planNudge,
   planSectionJump, planTempoReconcile, positionAt, sectionAtTime, timeOfBar,
   NUDGE_STEP_MS,
-} from '@levita/core';
-import type { EventSongSettings, QuantizeMode, Section, Song } from '@levita/core';
+} from '@kronilab/core';
+import type { EventSongSettings, QuantizeMode, Section, Song } from '@kronilab/core';
 import { getAudioEngine, engineKind } from '../../audio-engine/index.ts';
 import { getLocalStems } from '../../data/repositories.ts';
 import { logEvent, saveLiveSession } from '../../data/db.ts';
@@ -209,7 +209,7 @@ export function useLiveSession(
 
 function pitchFor(song: Song, setting: EventSongSettings | null): number {
   if (!setting?.selectedKey) return 0;
-  const { pitchShiftFor } = require('@levita/core');
+  const { pitchShiftFor } = require('@kronilab/core');
   return pitchShiftFor(song.originalKey, setting.selectedKey);
 }
 

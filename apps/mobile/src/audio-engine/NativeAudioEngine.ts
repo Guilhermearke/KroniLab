@@ -9,12 +9,12 @@
  * engine nativa e reescrever este arquivo e mais nada.
  */
 import { NativeEventEmitter, NativeModules } from 'react-native';
-import type { StemId } from '@levita/core';
+import type { StemId } from '@kronilab/core';
 import type {
   AudioEngine, EngineListener, EngineState, LoadSessionOptions, ScheduledJump,
 } from './AudioEngine.ts';
 
-interface LevitaAudioNativeModule {
+interface KroniLabAudioNativeModule {
   loadSession(payload: string): Promise<void>;
   unload(): Promise<void>;
   play(): Promise<void>;
@@ -31,7 +31,7 @@ interface LevitaAudioNativeModule {
   applyTempoRamp(rate: number, durationSec: number): void;
 }
 
-const native = NativeModules.LevitaAudio as LevitaAudioNativeModule | undefined;
+const native = NativeModules.KroniLabAudio as KroniLabAudioNativeModule | undefined;
 
 export function isNativeEngineAvailable(): boolean {
   return native != null;
@@ -46,14 +46,14 @@ export class NativeAudioEngine implements AudioEngine {
   constructor() {
     if (!native) {
       throw new Error(
-        'Modulo nativo LevitaAudio ausente. Development build e obrigatorio — ' +
+        'Modulo nativo KroniLabAudio ausente. Development build e obrigatorio — ' +
         'Expo Go nao carrega a engine de audio.',
       );
     }
     // O estado vem do relogio nativo. O JS nunca calcula a posicao sozinho:
     // se calculasse, a UI e o audio contariam tempos diferentes.
-    new NativeEventEmitter(NativeModules.LevitaAudio).addListener(
-      'LevitaAudioState',
+    new NativeEventEmitter(NativeModules.KroniLabAudio).addListener(
+      'KroniLabAudioState',
       (payload: EngineState) => {
         this.state = payload;
         for (const l of this.listeners) l(payload);

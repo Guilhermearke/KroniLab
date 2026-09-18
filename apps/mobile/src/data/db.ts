@@ -12,7 +12,7 @@ let db: SQLite.SQLiteDatabase | null = null;
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync('levita.db');
+  db = await SQLite.openDatabaseAsync('kronilab.db');
   await migrate(db);
   return db;
 }
