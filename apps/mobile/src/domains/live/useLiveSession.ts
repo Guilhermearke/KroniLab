@@ -7,9 +7,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  TapTempo, bpmAtTime, dueAction, nextSection, planLoopWrap, planNudge,
-  planSectionJump, planTempoReconcile, positionAt, sectionAtTime, timeOfBar,
-  NUDGE_STEP_MS,
+  TapTempo, bpmAtTime, dueAction, nextSection, pitchShiftFor, planLoopWrap,
+  planNudge, planSectionJump, planTempoReconcile, positionAt, sectionAtTime,
+  timeOfBar, NUDGE_STEP_MS,
 } from '@kronilab/core';
 import type { EventSongSettings, QuantizeMode, Section, Song } from '@kronilab/core';
 import { getAudioEngine, engineKind } from '../../audio-engine/index.ts';
@@ -208,9 +208,7 @@ export function useLiveSession(
 }
 
 function pitchFor(song: Song, setting: EventSongSettings | null): number {
-  if (!setting?.selectedKey) return 0;
-  const { pitchShiftFor } = require('@kronilab/core');
-  return pitchShiftFor(song.originalKey, setting.selectedKey);
+  return pitchShiftFor(song.originalKey, setting?.selectedKey ?? null);
 }
 
 /** Inicio de uma secao em segundos — usado pela barra de progresso. */
