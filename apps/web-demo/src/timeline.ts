@@ -7,10 +7,22 @@
  */
 import { timeOfBar } from '@kronilab/core';
 import { computePeaks, type Arrangement } from './arrangement.ts';
+import { CLICK_SOUNDS, type ClickSound, type Subdivision } from './click.ts';
 import {
-  CLICK_COLOR, GUIDE_COLOR, STEMS, chordAtBar, chordName,
+  CLICK_COLOR, GUIDE_COLOR, chordAtBar, chordName, stemsFor,
   type DemoSong, type StemKey,
 } from './data.ts';
+
+export interface TimelineOptions {
+  onSectionClick(sectionId: string): void;
+  clickSound: ClickSound;
+  subdivision: Subdivision;
+  onClickSound(sound: ClickSound): void;
+  onSubdivision(sub: Subdivision): void;
+  guideVoices: { name: string; label: string }[];
+  guideVoice: string | null;
+  onGuideVoice(name: string): void;
+}
 
 /**
  * Largura de um compasso, em pixels, no zoom 1.
@@ -19,10 +31,22 @@ import {
  */
 const BASE_BAR_WIDTH = 26;
 
-/** Alturas das lanes. No celular precisam caber os 8 stems na mesma tela. */
+/** Cabecalho ("Click ⤓ ⤳") e rodape (seletor de som / voz) dentro da lane. */
+const LANE_HEAD = 26;
+const LANE_FOOTER = 32;
+
+/**
+ * Alturas das lanes vem do CSS (--h-click, --h-guide, --h-stem): a coluna de
+ * canais usa as mesmas variaveis, e e isso que mantem strip e lane alinhados.
+ */
 function laneHeights() {
-  const compact = window.innerWidth < 760;
-  return { click: compact ? 44 : 56, guide: compact ? 40 : 50, stem: compact ? 52 : 68 };
+  const css = getComputedStyle(document.documentElement);
+  const px = (name: string, fallback: number) => parseFloat(css.getPropertyValue(name)) || fallback;
+  return {
+    click: px('--h-click', 88) - LANE_HEAD - LANE_FOOTER,
+    guide: px('--h-guide', 86) - LANE_HEAD - LANE_FOOTER,
+    stem: px('--h-stem', 80) - LANE_HEAD,
+  };
 }
 
 export interface TimelineHandles {
@@ -37,16 +61,25 @@ export function renderTimeline(
   container: HTMLElement,
   song: DemoSong,
   arrangement: Arrangement,
-  onSectionClick: (sectionId: string) => void,
+  opts: TimelineOptions,
 ): TimelineHandles {
+  const { onSectionClick } = opts;
   let zoom = 1;
   const totalBars = song.sections[song.sections.length - 1]!.endBar - 1;
   const key = song.selectedKey ?? song.originalKey;
+  const stems = stemsFor(song);
+  // Musica importada: o inicio do audio pode vir antes do compasso 1
+  // (silencio, contagem da gravacao). A lane cobre o audio inteiro.
+  const leadIn = song.audio ? timeOfBar(song.grid, 1) : 0;
 
   container.innerHTML = '';
   const scroller = el('div', 'tl-scroller');
-  const canvasWidth = () => totalBars * BASE_BAR_WIDTH * zoom;
-  const pps = () => canvasWidth() / song.durationSec;
+  const barPx = () => BASE_BAR_WIDTH * zoom;
+  const secPerBar = (timeOfBar(song.grid, 2) - timeOfBar(song.grid, 1)) || 1;
+  const pps = () => barPx() / secPerBar;
+  const canvasWidth = () => Math.max(totalBars * barPx(), song.durationSec * pps());
+  /** x do compasso `bar` (1-based). */
+  const barX = (bar: number) => timeOfBar(song.grid, bar) * pps();
 
   // --- regua de compassos ---------------------------------------------------
   const ruler = el('div', 'tl-ruler');
@@ -55,7 +88,7 @@ export function renderTimeline(
   const rulerTrack = el('div', 'tl-track');
   for (let bar = 1; bar <= totalBars; bar += 4) {
     const tick = el('div', 'tl-bar-tick');
-    tick.style.left = `${(bar - 1) * BASE_BAR_WIDTH * zoom}px`;
+    tick.style.left = `${barX(bar)}px`;
     tick.textContent = String(bar);
     rulerTrack.appendChild(tick);
   }
@@ -66,6 +99,7 @@ export function renderTimeline(
   const chordTrack = el('div', 'tl-track');
   function paintChords(): void {
     chordTrack.innerHTML = '';
+    if (song.audio) return; // a cifra da gravacao vem da analise, ainda nao
     let lastX = -Infinity;
     for (const section of song.sections) {
       for (let bar = section.startBar; bar < section.endBar; bar++) {
@@ -73,7 +107,7 @@ export function renderTimeline(
         const previous = bar > section.startBar ? chordAtBar(section, bar - 1) : null;
         // So escreve quando o acorde muda — cifra repetida vira ruido visual.
         if (previous && previous.degree === chord.degree && previous.quality === chord.quality) continue;
-        const x = (bar - 1) * BASE_BAR_WIDTH * zoom;
+        const x = barX(bar);
         if (x < lastX) continue;
         const label = el('div', 'tl-chord');
         label.style.left = `${x}px`;
@@ -94,16 +128,28 @@ export function renderTimeline(
 
   // Click
   const clickLane = lane('Click', CLICK_COLOR, 'click');
-  drawClick(clickLane.canvas, song, canvasWidth(), laneHeights().click);
+  drawClick(clickLane.canvas, song, canvasWidth(), laneHeights().click, pps());
   const clickFooter = el('div', 'lane-footer');
+  const soundOptions = CLICK_SOUNDS.map((c) => `<option value="${c.id}"${c.id === opts.clickSound ? ' selected' : ''}>${c.label}</option>`).join('');
   clickFooter.innerHTML = `
-    <span class="lane-select"><span class="ico">🔊</span> Cowbell <span class="chev">⌃</span></span>
-    <span class="seg"><button data-sub="0.5">0.5x</button><button data-sub="1" class="on">1x</button><button data-sub="2">2x</button></span>`;
+    <label class="lane-select"><span class="ico">🔊</span><select class="lane-native" data-role="click-sound">${soundOptions}</select><span class="chev">⌃</span></label>
+    <span class="seg">${([0.5, 1, 2] as Subdivision[]).map((sub) => `<button data-sub="${sub}"${sub === opts.subdivision ? ' class="on"' : ''}>${sub}x</button>`).join('')}</span>`;
+  clickFooter.querySelector<HTMLSelectElement>('[data-role="click-sound"]')!.addEventListener('change', (e) => {
+    opts.onClickSound((e.target as HTMLSelectElement).value as ClickSound);
+  });
+  for (const button of clickFooter.querySelectorAll<HTMLButtonElement>('[data-sub]')) {
+    button.addEventListener('click', () => {
+      for (const b of clickFooter.querySelectorAll('[data-sub]')) b.classList.remove('on');
+      button.classList.add('on');
+      opts.onSubdivision(Number(button.dataset.sub) as Subdivision);
+    });
+  }
   clickLane.body.appendChild(clickFooter);
 
   // Guia: blocos de secao, clicaveis (e assim que se navega no Studio)
   const guideLane = lane('Guia', GUIDE_COLOR, 'guide');
   const guideBlocks = el('div', 'guide-blocks');
+  guideBlocks.style.height = `${laneHeights().guide}px`;
   for (const section of song.sections) {
     const start = timeOfBar(song.grid, section.startBar);
     const end = timeOfBar(song.grid, section.endBar);
@@ -117,20 +163,29 @@ export function renderTimeline(
   }
   guideLane.canvas.replaceWith(guideBlocks);
   const guideFooter = el('div', 'lane-footer');
-  guideFooter.innerHTML = `<span class="lane-select"><span class="ico">🌐</span> PT-BR <span class="chev">⌃</span></span>`;
+  const voiceOptions = opts.guideVoices.length
+    ? opts.guideVoices.map((v) => `<option value="${v.name}"${v.name === opts.guideVoice ? ' selected' : ''}>${v.label}</option>`).join('')
+    : '<option value="">Sem voz pt-BR — bipe</option>';
+  guideFooter.innerHTML = `<label class="lane-select"><span class="ico">🌐</span><select class="lane-native" data-role="guide-voice">${voiceOptions}</select><span class="chev">⌃</span></label>`;
+  guideFooter.querySelector<HTMLSelectElement>('[data-role="guide-voice"]')!.addEventListener('change', (e) => {
+    opts.onGuideVoice((e.target as HTMLSelectElement).value);
+  });
   guideLane.body.appendChild(guideFooter);
 
   lanes.append(clickLane.root, guideLane.root);
 
-  // Stems
+  // Stems: sintetizados ou o mix da gravacao importada
+  const peaksOf = (key: StemKey) => key === 'mix' && song.audio
+    ? song.audio.peaks
+    : computePeaks(arrangement[key], song.durationSec);
   const stemCanvases = new Map<StemKey, HTMLCanvasElement>();
-  for (const stem of STEMS) {
+  for (const stem of stems) {
     const stemLane = lane(stem.label, stem.color, stem.key);
-    const peaks = computePeaks(arrangement[stem.key], song.durationSec);
-    drawWave(stemLane.canvas, peaks, canvasWidth(), laneHeights().stem);
+    drawWave(stemLane.canvas, peaksOf(stem.key), song.durationSec * pps(), laneHeights().stem);
     stemCanvases.set(stem.key, stemLane.canvas);
     lanes.appendChild(stemLane.root);
   }
+  void leadIn;
 
   const playhead = el('div', 'tl-playhead');
   scroller.append(ruler, chords, lanes, playhead);
@@ -141,13 +196,13 @@ export function renderTimeline(
     scroller.style.setProperty('--tl-width', `${width}px`);
     for (const tick of rulerTrack.children) {
       const bar = Number((tick as HTMLElement).textContent);
-      (tick as HTMLElement).style.left = `${(bar - 1) * BASE_BAR_WIDTH * zoom}px`;
+      (tick as HTMLElement).style.left = `${barX(bar)}px`;
     }
     paintChords();
-    drawClick(clickLane.canvas, song, width, laneHeights().click);
-    for (const stem of STEMS) {
+    drawClick(clickLane.canvas, song, width, laneHeights().click, pps());
+    for (const stem of stems) {
       const canvas = stemCanvases.get(stem.key)!;
-      drawWave(canvas, computePeaks(arrangement[stem.key], song.durationSec), width, laneHeights().stem);
+      drawWave(canvas, peaksOf(stem.key), song.durationSec * pps(), laneHeights().stem);
     }
     for (const block of guideBlocks.children) {
       const b = block as HTMLElement;
@@ -187,7 +242,7 @@ function lane(label: string, color: string, key: string) {
 }
 
 /** Click desenhado como ticks verticais, com o acento mais alto. */
-function drawClick(canvas: HTMLCanvasElement, song: DemoSong, width: number, height: number): void {
+function drawClick(canvas: HTMLCanvasElement, song: DemoSong, width: number, height: number, pps: number): void {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.width = width * dpr;
   canvas.height = height * dpr;
@@ -197,10 +252,9 @@ function drawClick(canvas: HTMLCanvasElement, song: DemoSong, width: number, hei
   g.scale(dpr, dpr);
   g.clearRect(0, 0, width, height);
   g.strokeStyle = 'rgba(255,255,255,.9)';
-  const pps = width / song.durationSec;
   for (const beat of song.grid.beats) {
     const x = beat.timestamp * pps;
-    if (x > width) break;
+    if (x > width || beat.timestamp > song.durationSec) break;
     const h = beat.downbeat ? height * 0.82 : height * 0.5;
     g.lineWidth = beat.downbeat ? 1.6 : 1;
     g.globalAlpha = beat.downbeat ? 1 : 0.65;

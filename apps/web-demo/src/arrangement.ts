@@ -34,20 +34,15 @@ export function buildArrangement(song: DemoSong): Arrangement {
   const secPerBar = secPerBeat * song.beatsPerBar;
 
   const out: Arrangement = {
-    click: [], guide: [], vocals: [], drums: [], bass: [], guitar: [], keys: [], other: [],
+    click: [], guide: [], vocals: [], drums: [], bass: [], guitar: [], keys: [], other: [], mix: [],
   };
 
-  // Click: um evento por tempo, acento no 1. Vem do beat grid, nao de um laco
-  // proprio — e a mesma grade que o Live Mode usa para saltar.
-  for (const beat of song.grid.beats) {
-    out.click.push({
-      t: beat.timestamp, dur: 0.05, freq: beat.downbeat ? 1800 : 1200,
-      amp: beat.downbeat ? 0.9 : 0.5, timbre: 'click', accent: beat.downbeat,
-    });
-  }
+  // O click nao mora aqui: ele e gerado pela engine a partir da grade, com
+  // subdivisao e pre-contagem (ver click.ts).
 
   for (const section of song.sections) {
-    for (let bar = section.startBar; bar < section.endBar; bar++) {
+    // Musica importada: a gravacao ja e o arranjo. So a guia e montada.
+    for (let bar = section.startBar; song.audio ? false : bar < section.endBar; bar++) {
       const barStart = timeOfBar(song.grid, bar);
       const chord = chordAtBar(section, bar);
       const chordRoot = root + chord.degree;

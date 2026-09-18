@@ -15,7 +15,8 @@
 <!-- Topo: identidade da musica + acao de palco                          -->
 <!-- ------------------------------------------------------------------ -->
 <header class="topbar">
-  <button class="icon-btn" id="view-toggle" title="Mixer">▥</button>
+  <button class="icon-btn" id="view-toggle" title="Mixer em faders">▥</button>
+  <span class="logo-tile" aria-hidden="true"><i></i></span>
   <div class="topbar-title">
     <h1 id="song-title">—</h1>
     <div class="topbar-meta">
@@ -43,7 +44,11 @@
 </div>
 
 <main id="studio" class="view">
-  <div id="timeline"></div>
+  <div class="studio-grid">
+    <!-- Coluna de canais: M/S, nome, volume e pan de cada lane, alinhados a ela -->
+    <aside class="strips" id="strips"></aside>
+    <div id="timeline"></div>
+  </div>
   <div class="tl-controls">
     <button class="icon-btn small" id="zoom-out">−</button>
     <button class="icon-btn small" id="zoom-in">+</button>
@@ -55,9 +60,6 @@
 <!-- ------------------------------------------------------------------ -->
 <main id="mixer-view" class="view is-hidden">
   <div class="mx-toolbar">
-    <span class="mx-select"><i>♪</i> <b id="sel-key">C</b> <span class="chev">⌄</span></span>
-    <span class="mx-select"><i>𝄞</i> <b id="sel-bpm">115</b> BPM <span class="chev">⌄</span></span>
-    <span class="mx-select on"><i>123</i> <b id="sel-countin">2 comp.</b> <span class="chev">⌄</span></span>
     <!-- Modo de visualizacao da mesa: escolha do operador, em qualquer tela -->
     <span class="view-modes">
       <button id="mode-rows">Canais</button>
@@ -68,56 +70,97 @@
 </main>
 
 <!-- ------------------------------------------------------------------ -->
-<!-- Live Mode: tela de palco, sem nada que se toque por engano           -->
+<!-- Live Mode: tela de palco. Tres zonas, como no Playback: transporte |  -->
+<!-- setlist + secoes | faders. Botoes grandes, nada que se toque por engano. -->
 <!-- ------------------------------------------------------------------ -->
 <div id="live" class="live is-hidden">
-  <div class="live-head">
-    <div>
-      <h2 id="live-title">—</h2>
-      <p id="live-meta"></p>
-    </div>
-    <div class="live-bar">
-      <span id="live-position">0.0</span>
+  <aside class="live-transport">
+    <div class="lt-clock">
+      <span class="lt-pos" id="live-position">1.1</span>
+      <span class="lt-sig" id="live-sig">115 · 4/4</span>
       <small id="live-rate"></small>
     </div>
-  </div>
-  <div class="live-sections" id="live-sections"></div>
-  <div class="live-state">
-    <div><span>ATUAL</span><strong id="live-current">—</strong></div>
-    <div><span>PRÓXIMO</span><strong id="live-next">—</strong></div>
-  </div>
-  <div class="live-controls">
-    <button class="lv-btn" id="lv-quantize">SALTO: COMPASSO</button>
-    <button class="lv-btn" id="lv-cancel">CANCELAR FILA</button>
-    <button class="lv-btn" id="lv-nudge-down">NUDGE −</button>
-    <button class="lv-btn" id="lv-nudge-up">NUDGE +</button>
-    <button class="lv-btn" id="lv-tap">TAP</button>
-    <button class="lv-btn" id="lv-exit">SAIR</button>
-  </div>
-  <div class="log" id="log"></div>
+    <span class="lt-time"><b id="live-time">0:00</b><i id="live-total">0:00</i></span>
+    <button class="lt-btn lt-play" id="lv-play" title="Tocar / pausar">▶</button>
+    <button class="lt-btn" id="lv-next-song" title="Próxima música">▶|</button>
+    <button class="lt-btn" id="lv-pad" title="Pad no tom">PAD</button>
+    <button class="lt-btn lt-small" id="lv-quantize" title="Quando o salto acontece">COMPASSO</button>
+    <button class="lt-btn lt-small" id="lv-cancel" title="Cancelar salto na fila">CANCELAR</button>
+    <span class="lt-spacer"></span>
+    <button class="lt-btn lt-small" id="lv-exit" title="Sair do palco">SAIR</button>
+  </aside>
+
+  <section class="live-center">
+    <nav class="live-setlist" id="live-setlist"></nav>
+    <div class="live-now">
+      <h2 id="live-title">—</h2>
+      <div class="live-state">
+        <div><span>ATUAL</span><strong id="live-current">—</strong></div>
+        <div><span>PRÓXIMO</span><strong id="live-next">—</strong></div>
+      </div>
+    </div>
+    <div class="live-sections" id="live-sections"></div>
+    <!-- A musica inteira: forma de onda, blocos de secao e o playhead. Tocar
+         num bloco enfileira o salto — igual aos botoes, mas vendo onde esta. -->
+    <div class="live-wave" id="live-wave">
+      <canvas id="live-canvas"></canvas>
+      <div class="live-wave-sections" id="live-wave-sections"></div>
+      <div class="live-wave-cursor" id="live-cursor"></div>
+    </div>
+    <div class="live-foot">
+      <button class="lv-btn" id="lv-nudge-down">NUDGE −</button>
+      <button class="lv-btn" id="lv-tap">TAP</button>
+      <button class="lv-btn" id="lv-nudge-up">NUDGE +</button>
+      <button class="lv-btn lv-log-toggle" id="lv-log-toggle">LOG</button>
+    </div>
+    <div class="log is-hidden" id="log"></div>
+  </section>
+
+  <aside class="live-faders" id="live-faders"></aside>
 </div>
 
 <!-- ------------------------------------------------------------------ -->
 <!-- Transporte: comum a todas as telas                                   -->
 <!-- ------------------------------------------------------------------ -->
 <footer class="transport">
-  <div class="tr-seek">
-    <span class="tr-time" id="tr-current">0:00</span>
-    <input type="range" id="tr-slider" min="0" max="1000" value="0">
-    <span class="tr-total" id="tr-total">0:00</span>
-  </div>
-  <div class="tr-buttons">
-    <button class="tr-ico" id="tr-list" title="Setlist">☰</button>
-    <button class="tr-ico" id="tr-chart" title="Cifra">♫</button>
-    <button class="tr-ico" id="tr-start" title="Inicio">|◀</button>
+  <div class="tr-row">
+    <button class="tr-play" id="tr-play" title="Tocar (espaço)">▶</button>
+    <button class="tr-ico" id="tr-start" title="Início">|◀</button>
     <button class="tr-ico" id="tr-back" title="Voltar 1 compasso">◀◀</button>
-    <button class="tr-play" id="tr-play" title="Tocar">▶</button>
-    <button class="tr-ico" id="tr-fwd" title="Avancar 1 compasso">▶▶</button>
+    <button class="tr-ico" id="tr-fwd" title="Avançar 1 compasso">▶▶</button>
     <button class="tr-ico" id="tr-end" title="Fim">▶|</button>
-    <button class="tr-ico" id="tr-loop" title="Loop da secao">⟲</button>
+    <span class="tr-sep"></span>
+    <button class="tr-ico" id="tr-loop" title="Loop da seção">⟲</button>
     <button class="tr-ico on" id="tr-follow" title="Seguir playhead">⇥</button>
+    <span class="tr-clock"><b id="tr-current">0:00</b> / <span id="tr-total">0:00</span></span>
+    <input type="range" id="tr-slider" min="0" max="1000" value="0" class="is-hidden" aria-hidden="true">
+    <span class="tr-spacer"></span>
+    <!-- Chips do culto: tom, andamento e pre-contagem. Cada um abre um popover. -->
+    <div class="tr-chips">
+      <button class="chip" id="chip-key"><i>♪</i><b id="sel-key">C</b></button>
+      <button class="chip" id="chip-bpm"><i>𝄞</i><b id="sel-bpm">115</b> BPM</button>
+      <button class="chip on" id="chip-countin"><i>123</i><b id="sel-countin">2 compassos</b></button>
+    </div>
   </div>
 </footer>
+
+<!-- Popovers dos chips -->
+<div class="pop is-hidden" id="pop-key">
+  <div class="pop-row"><span>Tom</span><button class="pop-step" id="key-down">−</button><b id="pop-key-value">0</b><button class="pop-step" id="key-up">+</button><span>semitons</span></div>
+  <div class="pop-row"><span class="pop-muted" id="pop-key-note"></span></div>
+</div>
+<div class="pop is-hidden" id="pop-bpm">
+  <div class="pop-row"><button class="pop-step" id="bpm-down">−</button><b id="pop-bpm-value">115</b><span>BPM</span><button class="pop-step" id="bpm-up">+</button></div>
+  <div class="pop-row"><button class="pop-wide" id="bpm-tap">👆 Tap</button><button class="pop-wide" id="bpm-reset">Original</button></div>
+</div>
+<div class="pop is-hidden" id="pop-countin">
+  <div class="pop-row"><span>PRÉ-CONTAGEM</span><label class="switch"><input type="checkbox" id="countin-on" checked><i></i></label></div>
+  <div class="pop-row"><button class="pop-step" id="countin-down">−</button><b id="pop-countin-value">2 compassos</b><button class="pop-step" id="countin-up">+</button></div>
+  <div class="pop-row"><span>CONTAGENS POR COMPASSO</span><b>4 <small>AUTO</small></b></div>
+</div>
+
+<!-- Importar musica -->
+<div class="im is-hidden" id="import-dialog"></div>
 
 <script type="module" src="./app.js"></script>
 </body>

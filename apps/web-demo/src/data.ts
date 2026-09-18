@@ -7,8 +7,11 @@
  */
 import { buildBeatGrid } from '@kronilab/core';
 import type { BeatGrid, Section, SectionType, TransitionMode } from '@kronilab/core';
+import type { ImportedAudio } from './importer.ts';
+import type { StoredSong } from './store.ts';
 
-export type StemKey = 'click' | 'guide' | 'vocals' | 'drums' | 'bass' | 'guitar' | 'keys' | 'other';
+/** `mix` e a gravacao inteira de uma musica importada, antes da separacao. */
+export type StemKey = 'click' | 'guide' | 'vocals' | 'drums' | 'bass' | 'guitar' | 'keys' | 'other' | 'mix';
 
 export interface StemMeta {
   key: StemKey;
@@ -25,6 +28,13 @@ export const STEMS: StemMeta[] = [
   { key: 'keys', label: 'Piano', color: '#12B886' },
   { key: 'other', label: 'Outro', color: '#E91E8C' },
 ];
+
+export const MIX_STEM: StemMeta = { key: 'mix', label: 'Mix', color: '#2F80ED' };
+
+/** Lanes/canais de uma musica: os 6 stems sintetizados ou o mix importado. */
+export function stemsFor(song: DemoSong): StemMeta[] {
+  return song.audio ? [MIX_STEM] : STEMS;
+}
 
 export const CLICK_COLOR = '#6B7A8F';
 export const GUIDE_COLOR = '#7C4DFF';
@@ -57,6 +67,10 @@ export interface DemoSong {
   /** O que acontece quando esta musica acaba (configuracao do culto). */
   transition: TransitionMode;
   padEnabled: boolean;
+  /** Presente quando a musica veio de um arquivo: a gravacao real. */
+  audio?: ImportedAudio;
+  /** Origem no IndexedDB, para editar/apagar. */
+  storedId?: string;
 }
 
 const C = (degree: number, quality: Chord['quality'] = 'maj'): Chord => ({ degree, quality });
@@ -161,4 +175,70 @@ export function chordAtBar(section: DemoSection, bar: number): Chord {
 /** Frequencia de uma nota MIDI. */
 export function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+// ---------------------------------------------------------------------------
+// Musicas importadas
+// ---------------------------------------------------------------------------
+
+export const SECTION_TYPES: { type: SectionType; label: string }[] = [
+  { type: 'Intro', label: 'Intro' },
+  { type: 'Verse', label: 'Verso' },
+  { type: 'PreChorus', label: 'Pre-refrao' },
+  { type: 'Chorus', label: 'Refrao' },
+  { type: 'Bridge', label: 'Ponte' },
+  { type: 'Instrumental', label: 'Instrumental' },
+  { type: 'Solo', label: 'Solo' },
+  { type: 'Break', label: 'Break' },
+  { type: 'Outro', label: 'Final' },
+];
+
+/** Quantos compassos inteiros cabem no audio a partir do primeiro downbeat. */
+export function barsInAudio(durationSec: number, bpm: number, firstDownbeatAt: number, beatsPerBar = 4): number {
+  const secPerBar = (60 / bpm) * beatsPerBar;
+  return Math.max(1, Math.floor((durationSec - firstDownbeatAt) / secPerBar));
+}
+
+/** Monta uma DemoSong a partir do que esta no IndexedDB + o audio decodificado. */
+export function songFromStored(stored: StoredSong, audio: ImportedAudio): DemoSong {
+  const durationSec = audio.buffer.duration;
+  const totalBars = barsInAudio(durationSec, stored.bpm, stored.firstDownbeatAt, stored.beatsPerBar);
+  const grid = buildBeatGrid({
+    tempoMap: { segments: [{ startTime: 0, bpm: stored.bpm }] },
+    duration: durationSec + 4,
+    timeSignature: { beatsPerBar: stored.beatsPerBar, beatUnit: 4 },
+    firstDownbeatAt: stored.firstDownbeatAt,
+  });
+
+  // Secoes em compassos; a ultima absorve o que sobrar para cobrir a musica.
+  let bar = 1;
+  const sections: DemoSection[] = stored.sections.map((p, i, all) => {
+    const isLast = i === all.length - 1;
+    const end = isLast ? Math.max(bar + 1, totalBars + 1) : Math.min(totalBars + 1, bar + p.bars);
+    const section: DemoSection = {
+      id: `${stored.id}-${i}`, type: p.type, label: p.label,
+      startBar: bar, endBar: end, chords: [C(0)], layers: ['mix'],
+    };
+    bar = end;
+    return section;
+  }).filter((s) => s.endBar > s.startBar);
+
+  return {
+    id: stored.id, title: stored.title, artist: stored.artist,
+    originalKey: stored.key, selectedKey: null, bpm: stored.bpm,
+    beatsPerBar: stored.beatsPerBar, countInBars: 2, grid, sections, durationSec,
+    transition: 'stop', padEnabled: true, audio, storedId: stored.id,
+  };
+}
+
+export function addToSetlist(song: DemoSong): number {
+  const existing = SETLIST.findIndex((s) => s.id === song.id);
+  if (existing >= 0) { SETLIST[existing] = song; return existing; }
+  SETLIST.push(song);
+  return SETLIST.length - 1;
+}
+
+export function removeFromSetlist(id: string): void {
+  const i = SETLIST.findIndex((s) => s.id === id);
+  if (i >= 0) SETLIST.splice(i, 1);
 }
