@@ -76,6 +76,10 @@ export function createImportDialog(
       </section>
 
       <section class="im-step is-hidden" data-step="edit">
+        <div class="im-block" id="im-stems-block" style="display:none; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+          <div class="im-block-head" style="margin-bottom: 8px;"><b>Stems Identificados</b></div>
+          <div id="im-stems-list" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+        </div>
         <div class="im-grid">
           <label class="im-field im-span2"><span>Título</span><input id="im-title" maxlength="100"></label>
           <label class="im-field"><span>Artista</span><input id="im-artist" maxlength="60" placeholder="opcional"></label>
